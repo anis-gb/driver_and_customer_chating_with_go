@@ -35,4 +35,3 @@ func New(db *pgxpool.Pool) http.Handler {
 
 	return r
 }
-
