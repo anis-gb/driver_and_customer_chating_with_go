@@ -1,4 +1,4 @@
-.PHONY: run build tidy migrate-up
+.PHONY: run build tidy migrate-up watch
 
 run:
 	go run ./cmd/api
@@ -9,6 +9,8 @@ build:
 tidy:
 	go mod tidy
 
-# Requires: psql client installed, DATABASE_URL exported or set in .env
+watch:
+	air
+
 migrate-up:
 	psql "$$DATABASE_URL" -f migrations/000001_init.sql
