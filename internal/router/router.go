@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/yourusername/go-starter/internal/handler"
 	"github.com/yourusername/go-starter/internal/middleware"
+	"github.com/yourusername/go-starter/internal/socket"
 	"github.com/yourusername/go-starter/internal/store"
 )
 
@@ -19,20 +20,29 @@ func New(db *pgxpool.Pool) http.Handler {
 	r.Use(chimiddleware.Recoverer)
 	r.Use(middleware.Logger)
 
+	// Initialize Store and Hub
+	s := store.NewStore(db)
+	hub := socket.NewHub(s)
+	go hub.Run()
+
 	helloHandler := handler.NewHelloHandler()
 	healthHandler := handler.NewHealthHandler(db)
-	messageHandler := handler.NewMessageHandler(store.NewMessageStore(db))
+	wsHandler := handler.NewWebSocketHandler(s, hub)
+	historyHandler := handler.NewHistoryHandler(s)
+
+	// WebSockets
+	r.Get("/ws", wsHandler.ServeWS)
+
+	// REST APIs
+	r.Get("/api/messages", historyHandler.GetHistory)
 
 	r.Route("/api/v1", func(api chi.Router) {
 		api.Get("/hello", helloHandler.Hello)
 		api.Get("/health", healthHandler.Health)
-
-		// Messages
-		api.Post("/messages", messageHandler.CreateMessage)
-		api.Get("/messages", messageHandler.ListMessages)
-		api.Get("/messages/{id}", messageHandler.GetMessage)
+		api.Get("/messages", historyHandler.GetHistory)
 	})
 
 	return r
 }
+
 
