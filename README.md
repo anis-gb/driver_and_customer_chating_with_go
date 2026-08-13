@@ -1,4 +1,4 @@
-# go-starter
+# Rideshare Chat API
 
 A standard-layout Go REST API starter using [chi](https://github.com/go-chi/chi) as the
 router and [pgx](https://github.com/jackc/pgx) for PostgreSQL access.
@@ -6,7 +6,7 @@ router and [pgx](https://github.com/jackc/pgx) for PostgreSQL access.
 ## Folder structure
 
 ```
-go-starter/
+rideshare-chat-api/
 ├── cmd/
 │   └── api/            # main.go — application entrypoint
 ├── internal/
@@ -42,10 +42,10 @@ share/reuse.
    cp .env.example .env
    ```
 
-2. Create the database referenced in `DATABASE_URL` (default name: `go_starter`):
+2. Create the database referenced in `DATABASE_URL` (default name: `rideshare-chat-api`):
 
    ```bash
-   createdb go_starter
+   createdb rideshare-chat-api
    ```
 
 3. Install dependencies:
@@ -68,27 +68,6 @@ share/reuse.
 
    The server starts on `http://localhost:8080` by default.
 
-## Endpoints
-
-| Method | Path              | Description                          |
-|--------|-------------------|---------------------------------------|
-| GET    | `/api/v1/hello`   | Returns a "hello world" JSON message |
-| GET    | `/api/v1/health`  | Health check, verifies DB connectivity |
-
-### Try it
-
-```bash
-curl http://localhost:8080/api/v1/hello
-```
-
-Response:
-
-```json
-{
-  "success": true,
-  "message": "hello world"
-}
-```
 
 ## Next steps
 
