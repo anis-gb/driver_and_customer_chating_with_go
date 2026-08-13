@@ -7,6 +7,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/yourusername/go-starter/internal/socket"
 	"github.com/yourusername/go-starter/internal/store"
+	"github.com/yourusername/go-starter/pkg/auth"
 	"github.com/yourusername/go-starter/pkg/response"
 )
 
@@ -21,15 +22,17 @@ var upgrader = websocket.Upgrader{
 
 // WebSocketHandler handles upgrading HTTP requests to WebSocket.
 type WebSocketHandler struct {
-	store *store.Store
-	hub   *socket.Hub
+	store  *store.Store
+	hub    *socket.Hub
+	secret string
 }
 
 // NewWebSocketHandler creates a new WebSocketHandler.
-func NewWebSocketHandler(s *store.Store, h *socket.Hub) *WebSocketHandler {
+func NewWebSocketHandler(s *store.Store, h *socket.Hub, secret string) *WebSocketHandler {
 	return &WebSocketHandler{
-		store: s,
-		hub:   h,
+		store:  s,
+		hub:    h,
+		secret: secret,
 	}
 }
 
@@ -47,6 +50,23 @@ func (h *WebSocketHandler) ServeWS(w http.ResponseWriter, r *http.Request) {
 		log.Printf("WebSocket connection rejected: user %s not found: %v", userID, err)
 		response.JSON(w, http.StatusNotFound, "user not found", nil)
 		return
+	}
+
+	// For CUSTOMER and DRIVER, verify HMAC signature via query params
+	if user.Role != "ADMIN" {
+		timestamp := r.URL.Query().Get("timestamp")
+		nonce := r.URL.Query().Get("nonce")
+		signature := r.URL.Query().Get("signature")
+
+		if timestamp == "" || nonce == "" || signature == "" {
+			response.JSON(w, http.StatusUnauthorized, "missing authentication query parameters (timestamp, nonce, signature)", nil)
+			return
+		}
+
+		if err := auth.VerifySignature(timestamp, nonce, signature, h.secret); err != nil {
+			response.JSON(w, http.StatusUnauthorized, "invalid signature: "+err.Error(), nil)
+			return
+		}
 	}
 
 	// 2. Upgrade to WebSocket

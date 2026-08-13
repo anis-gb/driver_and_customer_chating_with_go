@@ -69,6 +69,13 @@ share/reuse.
    The server starts on `http://localhost:8080` by default.
 
 
+## Documentation
+
+Please see the complete [API Documentation & Integration Guide](file:///c:/Users/garib/work/rideshare-chat-api/API_DOCUMENTATION.md) for full details on:
+- How to authenticate requests (HMAC Signatures).
+- How to connect WebSockets and make REST API calls.
+- Complete copy-paste code examples for Next.js, Flutter, and PHP/Laravel.
+
 ## Next steps
 
 - Add more resources by creating a handler in `internal/handler/`, wiring it
