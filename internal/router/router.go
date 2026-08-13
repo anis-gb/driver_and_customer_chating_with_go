@@ -29,17 +29,20 @@ func New(db *pgxpool.Pool) http.Handler {
 	healthHandler := handler.NewHealthHandler(db)
 	wsHandler := handler.NewWebSocketHandler(s, hub)
 	historyHandler := handler.NewHistoryHandler(s)
+	adminHandler := handler.NewAdminHandler(s)
 
 	// WebSockets
 	r.Get("/ws", wsHandler.ServeWS)
 
 	// REST APIs
 	r.Get("/api/messages", historyHandler.GetHistory)
+	r.Get("/api/admin/conversations", adminHandler.GetConversations)
 
 	r.Route("/api/v1", func(api chi.Router) {
 		api.Get("/hello", helloHandler.Hello)
 		api.Get("/health", healthHandler.Health)
 		api.Get("/messages", historyHandler.GetHistory)
+		api.Get("/admin/conversations", adminHandler.GetConversations)
 	})
 
 	return r

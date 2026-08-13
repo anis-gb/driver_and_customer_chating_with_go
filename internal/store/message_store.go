@@ -39,9 +39,17 @@ type OutgoingMessage struct {
 	ConversationID string    `json:"conversation_id"`
 	SenderID       string    `json:"sender_id,omitempty"` // empty if anonymized
 	SenderName     string    `json:"sender_name"`
-	SenderRole     string    `json:"sender_role"`
+	SenderRole     string    `json:"sender_role,omitempty"`
 	Content        string    `json:"content"`
 	CreatedAt      time.Time `json:"created_at"`
+}
+
+// AdminConversation represents an active chat thread summary for admin dashboard.
+type AdminConversation struct {
+	ConversationID string    `json:"conversation_id"`
+	CustomerName   string    `json:"customer_name"`
+	LastMessage    string    `json:"last_message"`
+	UpdatedAt      time.Time `json:"updated_at"`
 }
 
 // Store handles all database queries for users, conversations, and messages.
@@ -178,3 +186,45 @@ func (s *Store) GetChatHistory(ctx context.Context, conversationID string, curso
 
 	return messages, nil
 }
+
+// GetAdminConversations fetches all active conversations with the latest message details for admins.
+func (s *Store) GetAdminConversations(ctx context.Context) ([]AdminConversation, error) {
+	const query = `
+		SELECT 
+			c.id AS conversation_id,
+			u.name AS customer_name,
+			COALESCE(m.content, '') AS last_message,
+			COALESCE(m.created_at, c.created_at) AS updated_at
+		FROM conversations c
+		JOIN users u ON c.user_id = u.id
+		LEFT JOIN LATERAL (
+			SELECT content, created_at
+			FROM messages
+			WHERE conversation_id = c.id
+			ORDER BY created_at DESC
+			LIMIT 1
+		) m ON true
+		ORDER BY updated_at DESC`
+
+	rows, err := s.db.Query(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var conversations []AdminConversation
+	for rows.Next() {
+		var ac AdminConversation
+		if err := rows.Scan(&ac.ConversationID, &ac.CustomerName, &ac.LastMessage, &ac.UpdatedAt); err != nil {
+			return nil, err
+		}
+		conversations = append(conversations, ac)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return conversations, nil
+}
+
