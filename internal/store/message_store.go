@@ -145,6 +145,8 @@ func (s *Store) GetChatHistory(ctx context.Context, conversationID string, curso
 	var rows pgx.Rows
 	var err error
 
+	queryLimit := limit + 1
+
 	if cursorTime.IsZero() {
 		const query = `
 			SELECT m.id, m.conversation_id, m.sender_id, u.name, u.role, m.content, m.created_at
@@ -153,7 +155,7 @@ func (s *Store) GetChatHistory(ctx context.Context, conversationID string, curso
 			WHERE m.conversation_id = $1
 			ORDER BY m.created_at DESC
 			LIMIT $2`
-		rows, err = s.db.Query(ctx, query, conversationID, limit)
+		rows, err = s.db.Query(ctx, query, conversationID, queryLimit)
 	} else {
 		const query = `
 			SELECT m.id, m.conversation_id, m.sender_id, u.name, u.role, m.content, m.created_at
@@ -162,7 +164,7 @@ func (s *Store) GetChatHistory(ctx context.Context, conversationID string, curso
 			WHERE m.conversation_id = $1 AND m.created_at < $2
 			ORDER BY m.created_at DESC
 			LIMIT $3`
-		rows, err = s.db.Query(ctx, query, conversationID, cursorTime, limit)
+		rows, err = s.db.Query(ctx, query, conversationID, cursorTime, queryLimit)
 	}
 
 	if err != nil {
