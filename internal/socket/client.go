@@ -36,14 +36,14 @@ func (c *Client) ReadPump() {
 	})
 
 	for {
-		_, message, err := c.Conn.ReadMessage()
+		_, _, err := c.Conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 				log.Printf("error: %v", err)
 			}
 			break
 		}
-		c.Hub.RouteMessage(c, message)
+		// Ignore incoming messages over WebSocket, as all sending should be done via POST API.
 	}
 }
 

@@ -10,7 +10,7 @@ import (
 	"github.com/yourusername/go-starter/pkg/response"
 )
 
-// HistoryHandler handles fetching message history for conversations.
+// HistoryHandler handles fetching message history.
 type HistoryHandler struct {
 	store *store.Store
 }
@@ -21,7 +21,7 @@ func NewHistoryHandler(s *store.Store) *HistoryHandler {
 }
 
 // GetHistory fetches message history with cursor-based pagination.
-// GET /api/messages?user_id=...&conversation_id=...&cursor=...&limit=...
+// GET /api/messages?user_id=...&target_user_id=...&cursor=...&limit=...
 func (h *HistoryHandler) GetHistory(w http.ResponseWriter, r *http.Request) {
 	userID := r.URL.Query().Get("user_id")
 	if userID == "" {
@@ -36,23 +36,17 @@ func (h *HistoryHandler) GetHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 2. Determine target conversation_id
-	conversationID := r.URL.Query().Get("conversation_id")
+	// 2. Determine target user_id for the chat history
+	var targetUserID string
 	if user.Role == "ADMIN" {
-		if conversationID == "" {
-			response.JSON(w, http.StatusBadRequest, "conversation_id query parameter is required for admins", nil)
+		targetUserID = r.URL.Query().Get("target_user_id")
+		if targetUserID == "" {
+			response.JSON(w, http.StatusBadRequest, "target_user_id query parameter is required for admins", nil)
 			return
 		}
 	} else {
-		// If non-admin and conversation_id is not supplied, fetch/create user's conversation
-		if conversationID == "" {
-			conversationID, err = h.store.GetOrCreateConversation(r.Context(), user.ID)
-			if err != nil {
-				log.Printf("Failed to get/create conversation for user %s: %v", user.ID, err)
-				response.JSON(w, http.StatusInternalServerError, "failed to load conversation", nil)
-				return
-			}
-		}
+		// If non-admin, they can only fetch their own chat history
+		targetUserID = user.ID
 	}
 
 	// 3. Parse optional cursor (RFC3339 timestamp)
@@ -77,9 +71,9 @@ func (h *HistoryHandler) GetHistory(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 5. Fetch older messages from store
-	rawMessages, err := h.store.GetChatHistory(r.Context(), conversationID, cursorTime, limit)
+	rawMessages, err := h.store.GetChatHistory(r.Context(), targetUserID, cursorTime, limit)
 	if err != nil {
-		log.Printf("Failed to fetch chat history for conversation %s: %v", conversationID, err)
+		log.Printf("Failed to fetch chat history for user %s: %v", targetUserID, err)
 		response.JSON(w, http.StatusInternalServerError, "failed to fetch messages", nil)
 		return
 	}
@@ -91,8 +85,8 @@ func (h *HistoryHandler) GetHistory(w http.ResponseWriter, r *http.Request) {
 	// 6. Apply Admin Anonymization Rule for Customer/Driver requests
 	if user.Role != "ADMIN" {
 		for i, m := range rawMessages {
-			if m.SenderRole == "ADMIN" {
-				rawMessages[i].SenderID = ""
+			if m.SendedBy == "ADMIN" {
+				rawMessages[i].AdminID = nil
 				rawMessages[i].SenderName = "Support Admin"
 			}
 		}
@@ -117,3 +111,4 @@ func (h *HistoryHandler) GetHistory(w http.ResponseWriter, r *http.Request) {
 		"has_more":    hasMore,
 	})
 }
+

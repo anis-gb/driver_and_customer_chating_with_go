@@ -29,6 +29,7 @@ func New(db *pgxpool.Pool) http.Handler {
 	wsHandler := handler.NewWebSocketHandler(s, hub)
 	historyHandler := handler.NewHistoryHandler(s)
 	adminHandler := handler.NewAdminHandler(s)
+	messageHandler := handler.NewMessageHandler(s, hub)
 
 	// Health Check Endpoint (checks service and PostgreSQL connection)
 	r.Get("/health", healthHandler.Health)
@@ -39,6 +40,8 @@ func New(db *pgxpool.Pool) http.Handler {
 
 	// REST APIs for Real-time Chat System
 	r.Get("/api/messages", historyHandler.GetHistory)
+	r.Post("/api/messages", messageHandler.SendMessage)
+	r.Post("/api/messages/seen", messageHandler.MarkMessagesSeen)
 	r.Get("/api/admin/conversations", adminHandler.GetConversations)
 
 	return r
