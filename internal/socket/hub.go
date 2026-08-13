@@ -178,15 +178,6 @@ func (h *Hub) RouteMessage(sender *Client, rawPayload []byte) {
 
 	// 3. Routing logic
 	if sender.Role != "ADMIN" {
-		// Send confirmation back to the sender customer/driver
-		if client, online := h.clients[sender.UserID]; online {
-			select {
-			case client.Send <- userPayload:
-			default:
-				go func() { h.unregister <- client }()
-			}
-		}
-
 		// Broadcast to all active Admins
 		for _, admin := range h.admins {
 			select {
@@ -196,8 +187,11 @@ func (h *Hub) RouteMessage(sender *Client, rawPayload []byte) {
 			}
 		}
 	} else {
-		// Broadcast admin reply to all active Admins (so their dashboards stay in sync)
+		// Broadcast admin reply to all other active Admins (so their dashboards stay in sync)
 		for _, admin := range h.admins {
+			if admin.UserID == sender.UserID {
+				continue
+			}
 			select {
 			case admin.Send <- adminPayload:
 			default:
