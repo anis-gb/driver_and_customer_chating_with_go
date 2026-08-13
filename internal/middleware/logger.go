@@ -17,7 +17,15 @@ func Logger(next http.Handler) http.Handler {
 
 		next.ServeHTTP(sw, r)
 
-		log.Printf("%s %s -> %d (%s)", r.Method, r.URL.Path, sw.status, time.Since(start))
+		if r.URL.Path == "/ws" {
+			if sw.status == http.StatusSwitchingProtocols {
+				log.Printf("%s %s -> WS CONNECTED", r.Method, r.URL.Path)
+			} else {
+				log.Printf("%s %s -> WS FAILED (%d)", r.Method, r.URL.Path, sw.status)
+			}
+		} else {
+			log.Printf("%s %s -> %d (%s)", r.Method, r.URL.Path, sw.status, time.Since(start))
+		}
 	})
 }
 
