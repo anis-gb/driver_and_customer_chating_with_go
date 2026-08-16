@@ -3,15 +3,8 @@ DROP TABLE IF EXISTS customer_messages CASCADE;
 DROP TABLE IF EXISTS driver_messages CASCADE;
 DROP TABLE IF EXISTS messages CASCADE;
 DROP TABLE IF EXISTS conversations CASCADE;
-DROP TABLE IF EXISTS users CASCADE;
 
 -- 1. Create Tables
-CREATE TABLE users (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    name VARCHAR(255) NOT NULL,
-    role VARCHAR(20) CHECK (role IN ('ADMIN', 'CUSTOMER', 'DRIVER')) NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
 
 CREATE TABLE customer_messages (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -51,9 +44,3 @@ CREATE TABLE driver_messages (
 CREATE INDEX idx_customer_messages_user_created ON customer_messages (user_id, created_at DESC);
 CREATE INDEX idx_driver_messages_user_created ON driver_messages (user_id, created_at DESC);
 
--- 2. Insert Dummy Data
-INSERT INTO users (id, name, role) VALUES 
-('11111111-1111-1111-1111-111111111111', 'Admin Alice', 'ADMIN'),
-('22222222-2222-2222-2222-222222222222', 'Admin Bob', 'ADMIN'),
-('33333333-3333-3333-3333-333333333333', 'Customer Charlie', 'CUSTOMER'),
-('44444444-4444-4444-4444-444444444444', 'Driver Dave', 'DRIVER');
