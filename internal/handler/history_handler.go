@@ -3,13 +3,14 @@ package handler
 import (
 	"log"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/yourusername/go-starter/internal/store"
 	"github.com/yourusername/go-starter/pkg/response"
 )
 
-// HistoryHandler handles fetching previous messages.
+// HistoryHandler handles fetching message history.
 type HistoryHandler struct {
 	store *store.Store
 }
@@ -19,37 +20,36 @@ func NewHistoryHandler(s *store.Store) *HistoryHandler {
 	return &HistoryHandler{store: s}
 }
 
-// GetHistory fetches the chat history for a customer/driver.
-// GET /api/messages?user_id=...&requester_id=...&cursor=...
+// GetHistory fetches message history with cursor-based pagination.
+// GET /api/messages?user_id=...&target_user_id=...&cursor=...&limit=...
 func (h *HistoryHandler) GetHistory(w http.ResponseWriter, r *http.Request) {
-	targetUserID := r.URL.Query().Get("user_id")
-	if targetUserID == "" {
+	userID := r.URL.Query().Get("user_id")
+	if userID == "" {
 		response.JSON(w, http.StatusBadRequest, "user_id query parameter is required", nil)
 		return
 	}
 
-	// Determine who is requesting the history (defaults to targetUserID if empty)
-	requesterID := r.URL.Query().Get("requester_id")
-	if requesterID == "" {
-		requesterID = targetUserID
-	}
-
-	// 1. Fetch requester to check role for anonymization
-	requester, err := h.store.GetUserByID(r.Context(), requesterID)
+	// 1. Fetch requesting user from DB to verify role
+	user, err := h.store.GetUserByID(r.Context(), userID)
 	if err != nil {
-		response.JSON(w, http.StatusUnauthorized, "requester not found", nil)
+		response.JSON(w, http.StatusUnauthorized, "user not found", nil)
 		return
 	}
 
-	// 2. Find target user's conversation
-	conversationID, err := h.store.GetOrCreateConversation(r.Context(), targetUserID)
-	if err != nil {
-		log.Printf("Failed to get/create conversation for user %s: %v", targetUserID, err)
-		response.JSON(w, http.StatusInternalServerError, "failed to load conversation", nil)
-		return
+	// 2. Determine target user_id for the chat history
+	var targetUserID string
+	if user.Role == "ADMIN" {
+		targetUserID = r.URL.Query().Get("target_user_id")
+		if targetUserID == "" {
+			response.JSON(w, http.StatusBadRequest, "target_user_id query parameter is required for admins", nil)
+			return
+		}
+	} else {
+		// If non-admin, they can only fetch their own chat history
+		targetUserID = user.ID
 	}
 
-	// 3. Parse optional cursor (timestamp in RFC3339)
+	// 3. Parse optional cursor (RFC3339 timestamp)
 	var cursorTime time.Time
 	cursorStr := r.URL.Query().Get("cursor")
 	if cursorStr != "" {
@@ -61,27 +61,54 @@ func (h *HistoryHandler) GetHistory(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 4. Fetch up to 50 older messages
-	messages, err := h.store.GetChatHistory(r.Context(), conversationID, cursorTime, 50)
+	// 4. Parse optional limit (default 50)
+	limit := 50
+	limitStr := r.URL.Query().Get("limit")
+	if limitStr != "" {
+		if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 {
+			limit = parsedLimit
+		}
+	}
+
+	// 5. Fetch older messages from store
+	rawMessages, err := h.store.GetChatHistory(r.Context(), targetUserID, cursorTime, limit)
 	if err != nil {
-		log.Printf("Failed to fetch chat history: %v", err)
+		log.Printf("Failed to fetch chat history for user %s: %v", targetUserID, err)
 		response.JSON(w, http.StatusInternalServerError, "failed to fetch messages", nil)
 		return
 	}
 
-	if messages == nil {
-		messages = []store.OutgoingMessage{}
+	if rawMessages == nil {
+		rawMessages = []store.OutgoingMessage{}
 	}
 
-	// 5. Apply Admin Anonymization Rule
-	if requester.Role != "ADMIN" {
-		for i, m := range messages {
-			if m.SenderRole == "ADMIN" {
-				messages[i].SenderID = ""
-				messages[i].SenderName = "Support Admin"
+	// 6. Apply Admin Anonymization Rule for Customer/Driver requests
+	if user.Role != "ADMIN" {
+		for i, m := range rawMessages {
+			if m.SendedBy == "ADMIN" {
+				rawMessages[i].AdminID = nil
+				rawMessages[i].SenderName = "Support Admin"
 			}
 		}
 	}
 
-	response.JSON(w, http.StatusOK, "", messages)
+	// 7. Calculate pagination metadata (has_more, next_cursor)
+	hasMore := false
+	nextCursor := ""
+	messagesList := rawMessages
+
+	if len(rawMessages) > limit {
+		hasMore = true
+		// The next_cursor is the timestamp of the last message in the requested page
+		nextCursor = rawMessages[limit-1].CreatedAt.Format(time.RFC3339)
+		messagesList = rawMessages[:limit]
+	}
+
+	// 8. Return paginated response payload
+	response.RawJSON(w, http.StatusOK, map[string]any{
+		"messages":    messagesList,
+		"next_cursor": nextCursor,
+		"has_more":    hasMore,
+	})
 }
+

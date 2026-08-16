@@ -25,24 +25,24 @@ func New(db *pgxpool.Pool) http.Handler {
 	hub := socket.NewHub(s)
 	go hub.Run()
 
-	helloHandler := handler.NewHelloHandler()
 	healthHandler := handler.NewHealthHandler(db)
 	wsHandler := handler.NewWebSocketHandler(s, hub)
 	historyHandler := handler.NewHistoryHandler(s)
+	adminHandler := handler.NewAdminHandler(s)
+	messageHandler := handler.NewMessageHandler(s, hub)
 
-	// WebSockets
+	// Health Check Endpoint (checks service and PostgreSQL connection)
+	r.Get("/health", healthHandler.Health)
+	r.Get("/api/health", healthHandler.Health)
+
+	// WebSocket Endpoint
 	r.Get("/ws", wsHandler.ServeWS)
 
-	// REST APIs
+	// REST APIs for Real-time Chat System
 	r.Get("/api/messages", historyHandler.GetHistory)
-
-	r.Route("/api/v1", func(api chi.Router) {
-		api.Get("/hello", helloHandler.Hello)
-		api.Get("/health", healthHandler.Health)
-		api.Get("/messages", historyHandler.GetHistory)
-	})
+	r.Post("/api/messages", messageHandler.SendMessage)
+	r.Post("/api/messages/seen", messageHandler.MarkMessagesSeen)
+	r.Get("/api/admin/conversations", adminHandler.GetConversations)
 
 	return r
 }
-
-

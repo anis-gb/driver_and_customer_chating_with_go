@@ -49,33 +49,21 @@ func (h *WebSocketHandler) ServeWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 2. If Customer/Driver, ensure they have a conversation
-	var conversationID string
-	if user.Role != "ADMIN" {
-		conversationID, err = h.store.GetOrCreateConversation(r.Context(), user.ID)
-		if err != nil {
-			log.Printf("Failed to get/create conversation for user %s: %v", user.ID, err)
-			response.JSON(w, http.StatusInternalServerError, "failed to initialize chat session", nil)
-			return
-		}
-	}
-
-	// 3. Upgrade to WebSocket
+	// 2. Upgrade to WebSocket
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("Failed to upgrade HTTP connection: %v", err)
 		return
 	}
 
-	// 4. Create and register client
+	// 3. Create and register client
 	client := &socket.Client{
-		UserID:         user.ID,
-		Name:           user.Name,
-		Role:           user.Role,
-		ConversationID: conversationID,
-		Conn:           conn,
-		Send:           make(chan []byte, 256),
-		Hub:            h.hub,
+		UserID: user.ID,
+		Name:   user.Name,
+		Role:   user.Role,
+		Conn:   conn,
+		Send:   make(chan []byte, 256),
+		Hub:    h.hub,
 	}
 
 	h.hub.Register(client)

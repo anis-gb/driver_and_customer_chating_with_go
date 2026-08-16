@@ -22,3 +22,11 @@ func JSON(w http.ResponseWriter, status int, message string, data any) {
 		Data:    data,
 	})
 }
+
+// RawJSON writes direct JSON data without an envelope wrapper.
+func RawJSON(w http.ResponseWriter, status int, data any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(data)
+}
+
