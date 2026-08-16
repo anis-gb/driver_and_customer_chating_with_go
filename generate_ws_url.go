@@ -44,3 +44,9 @@ func main() {
 	fmt.Printf("ws://localhost:8080/ws?user_id=%s&timestamp=%s&nonce=%s&signature=%s\n", userID, timestamp, nonce, signature)
 	fmt.Println("=============================================\n")
 }
+
+// Usage:
+// 1. Create a new user in the database with role CUSTOMER
+// 2. Run: go run generate_ws_url.go <user_id>
+// 3. Copy the output URL and paste it into Postman WebSocket client
+// 4. Send a message to the WebSocket

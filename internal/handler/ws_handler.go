@@ -1,10 +1,17 @@
 package handler
 
 import (
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/yourusername/go-starter/internal/middleware"
 	"github.com/yourusername/go-starter/internal/socket"
 	"github.com/yourusername/go-starter/internal/store"
 	"github.com/yourusername/go-starter/pkg/auth"
@@ -91,4 +98,42 @@ func (h *WebSocketHandler) ServeWS(w http.ResponseWriter, r *http.Request) {
 	// Start reading and writing loops in goroutines
 	go client.WritePump()
 	go client.ReadPump()
+}
+
+// GetTicket generates a fresh WebSocket URL for the authenticated user.
+func (h *WebSocketHandler) GetTicket(w http.ResponseWriter, r *http.Request) {
+	// Get user_id from context (injected by HMACAuth middleware)
+	userID, ok := r.Context().Value(middleware.UserContextKey).(string)
+	if !ok || userID == "" {
+		response.JSON(w, http.StatusUnauthorized, "unauthorized", nil)
+		return
+	}
+
+	timestamp := fmt.Sprintf("%d", time.Now().Unix())
+
+	// Generate random 16 byte nonce
+	nonceBytes := make([]byte, 16)
+	rand.Read(nonceBytes)
+	nonce := hex.EncodeToString(nonceBytes)
+
+	// Generate signature
+	message := fmt.Sprintf("%s|%s", timestamp, nonce)
+	mac := hmac.New(sha256.New, []byte(h.secret))
+	mac.Write([]byte(message))
+	signature := hex.EncodeToString(mac.Sum(nil))
+
+	scheme := "ws"
+	if r.TLS != nil {
+		scheme = "wss"
+	}
+	host := r.Host
+
+	wsURL := fmt.Sprintf("%s://%s/ws?user_id=%s&timestamp=%s&nonce=%s&signature=%s", scheme, host, userID, timestamp, nonce, signature)
+
+	response.JSON(w, http.StatusOK, "ticket generated successfully", map[string]interface{}{
+		"ws_url":    wsURL,
+		"timestamp": timestamp,
+		"nonce":     nonce,
+		"signature": signature,
+	})
 }

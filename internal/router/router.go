@@ -42,7 +42,7 @@ func New(db *pgxpool.Pool, cfg *config.Config) http.Handler {
 	// REST APIs for Real-time Chat System
 	r.Route("/api", func(r chi.Router) {
 		r.Use(middleware.HMACAuth(cfg.HMACSecret, s))
-		
+		r.Get("/ws/ticket", wsHandler.GetTicket)
 		r.Get("/messages", historyHandler.GetHistory)
 		r.Post("/messages", messageHandler.SendMessage)
 		r.Post("/messages/seen", messageHandler.MarkMessagesSeen)
