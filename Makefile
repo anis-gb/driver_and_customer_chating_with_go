@@ -13,4 +13,4 @@ watch:
 	air
 
 migrate-up:
-	psql "$$DATABASE_URL" -f migrations/000001_init.sql
+	psql "$$DATABASE_URL" -f migrations/000003_realtime_schema.sql
