@@ -49,6 +49,25 @@ func (h *WebSocketHandler) ServeWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// For CUSTOMER and DRIVER, verify HMAC signature via query params (temporarily bypassed for dev testing)
+	/*
+	if user.Role != "ADMIN" {
+		timestamp := r.URL.Query().Get("timestamp")
+		nonce := r.URL.Query().Get("nonce")
+		signature := r.URL.Query().Get("signature")
+
+		if timestamp == "" || nonce == "" || signature == "" {
+			response.JSON(w, http.StatusUnauthorized, "missing authentication query parameters (timestamp, nonce, signature)", nil)
+			return
+		}
+
+		if err := auth.VerifySignature(timestamp, nonce, signature, h.secret); err != nil {
+			response.JSON(w, http.StatusUnauthorized, "invalid signature: "+err.Error(), nil)
+			return
+		}
+	}
+	*/
+
 	// 2. Upgrade to WebSocket
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
