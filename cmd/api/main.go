@@ -24,9 +24,10 @@ func main() {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
 	defer db.Close()
+	log.Println("connected to PostgreSQL")
 
 	// Build the HTTP router with all routes/handlers wired up
-	r := router.New(db)
+	r := router.New(db, cfg)
 
 	srv := &http.Server{
 		Addr:         ":" + cfg.Port,

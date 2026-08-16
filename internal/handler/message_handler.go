@@ -1,100 +1,129 @@
 package handler
 
 import (
-	"encoding/json"
-	"errors"
-	"log"
 	"net/http"
-	"strconv"
 
-	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5"
+	"github.com/yourusername/go-starter/internal/socket"
 	"github.com/yourusername/go-starter/internal/store"
 	"github.com/yourusername/go-starter/pkg/response"
 )
 
-// MessageHandler handles HTTP requests for messages.
 type MessageHandler struct {
-	store *store.MessageStore
+	store *store.Store
+	hub   *socket.Hub
 }
 
-// NewMessageHandler creates a new MessageHandler.
-func NewMessageHandler(s *store.MessageStore) *MessageHandler {
-	return &MessageHandler{store: s}
+func NewMessageHandler(s *store.Store, h *socket.Hub) *MessageHandler {
+	return &MessageHandler{
+		store: s,
+		hub:   h,
+	}
 }
 
-// CreateMessage godoc
-// POST /api/v1/messages
-// Accepts a JSON body with sender_id and content, persists it, and returns the created message.
-func (h *MessageHandler) CreateMessage(w http.ResponseWriter, r *http.Request) {
-	var params store.CreateMessageParams
-
-	if err := json.NewDecoder(r.Body).Decode(&params); err != nil {
-		response.JSON(w, http.StatusBadRequest, "invalid request body", nil)
-		return
-	}
-
-	if params.Content == "" {
-		response.JSON(w, http.StatusUnprocessableEntity, "content is required", nil)
-		return
-	}
-	if params.SenderID == 0 {
-		response.JSON(w, http.StatusUnprocessableEntity, "sender_id is required", nil)
-		return
-	}
-
-	msg, err := h.store.Create(r.Context(), params)
-	if err != nil {
-		log.Printf("ERROR CreateMessage: %v", err)
-		response.JSON(w, http.StatusInternalServerError, "failed to create message", nil)
-		return
-	}
-
-	response.JSON(w, http.StatusCreated, "message created", msg)
-}
-
-// ListMessages godoc
-// GET /api/v1/messages
-// Returns all messages ordered by newest first.
-func (h *MessageHandler) ListMessages(w http.ResponseWriter, r *http.Request) {
-	messages, err := h.store.List(r.Context())
-	if err != nil {
-		log.Printf("ERROR ListMessages: %v", err)
-		response.JSON(w, http.StatusInternalServerError, "failed to fetch messages", nil)
-		return
-	}
-
-	// Return an empty array instead of null when there are no messages.
-	if messages == nil {
-		messages = []store.Message{}
-	}
-
-	response.JSON(w, http.StatusOK, "", messages)
-}
-
-// GetMessage godoc
-// GET /api/v1/messages/{id}
-// Returns a single message by ID.
-func (h *MessageHandler) GetMessage(w http.ResponseWriter, r *http.Request) {
-	idStr := chi.URLParam(r, "id")
-	id, err := strconv.ParseInt(idStr, 10, 64)
-	if err != nil {
-		response.JSON(w, http.StatusBadRequest, "invalid message id", nil)
-		return
-	}
-
-	msg, err := h.store.GetByID(r.Context(), id)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			response.JSON(w, http.StatusNotFound, "message not found", nil)
+func (h *MessageHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
+	// Parse multipart form data with a max memory of 10MB
+	if err := r.ParseMultipartForm(10 << 20); err != nil {
+		if err := r.ParseForm(); err != nil {
+			response.JSON(w, http.StatusBadRequest, "failed to parse form data", nil)
 			return
 		}
-		log.Printf("ERROR GetMessage: %v", err)
-		response.JSON(w, http.StatusInternalServerError, "failed to fetch message", nil)
+	}
+
+	// Authenticated User ID (the sender) is now expected in the form data
+	authUserID := r.FormValue("user_id")
+	if authUserID == "" {
+		response.JSON(w, http.StatusBadRequest, "user_id form field is required (sender)", nil)
 		return
 	}
 
-	response.JSON(w, http.StatusOK, "", msg)
+	sender, err := h.store.GetUserByID(r.Context(), authUserID)
+	if err != nil {
+		response.JSON(w, http.StatusUnauthorized, "invalid sender user_id", nil)
+		return
+	}
+
+	content := r.FormValue("content")
+	if content == "" {
+		response.JSON(w, http.StatusBadRequest, "content cannot be empty", nil)
+		return
+	}
+
+	var targetUserID string
+	var adminID *string
+
+	if sender.Role == "ADMIN" {
+		targetUserID = r.FormValue("target_user_id")
+		if targetUserID == "" {
+			response.JSON(w, http.StatusBadRequest, "target_user_id form field is required when admin sends a message", nil)
+			return
+		}
+		adminID = &sender.ID
+	} else {
+		// Customers and drivers always send messages to their own chat thread
+		targetUserID = sender.ID
+		adminID = nil
+	}
+
+	// Persist the message
+	msg, err := h.store.InsertMessage(r.Context(), targetUserID, adminID, sender.Role, content)
+	if err != nil {
+		response.JSON(w, http.StatusInternalServerError, "failed to save message", nil)
+		return
+	}
+
+	// Broadcast via WebSocket
+	outgoingMsg := store.OutgoingMessage{
+		ID:         msg.ID,
+		UserID:     msg.UserID,
+		AdminID:    msg.AdminID,
+		SendedBy:   msg.SendedBy,
+		SenderName: sender.Name, // This gets anonymized inside BroadcastMessage if needed
+		Content:    msg.Content,
+		Seen:       msg.Seen,
+		CreatedAt:  msg.CreatedAt,
+	}
+	
+	h.hub.BroadcastMessage(outgoingMsg)
+
+	response.JSON(w, http.StatusCreated, "message sent", outgoingMsg)
 }
 
+func (h *MessageHandler) MarkMessagesSeen(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseMultipartForm(10 << 20); err != nil {
+		if err := r.ParseForm(); err != nil {
+			response.JSON(w, http.StatusBadRequest, "failed to parse form data", nil)
+			return
+		}
+	}
+
+	authUserID := r.FormValue("user_id")
+	if authUserID == "" {
+		response.JSON(w, http.StatusBadRequest, "user_id form field is required", nil)
+		return
+	}
+
+	viewer, err := h.store.GetUserByID(r.Context(), authUserID)
+	if err != nil {
+		response.JSON(w, http.StatusUnauthorized, "invalid user_id", nil)
+		return
+	}
+
+	var targetUserID string
+	if viewer.Role == "ADMIN" {
+		targetUserID = r.FormValue("target_user_id")
+		if targetUserID == "" {
+			response.JSON(w, http.StatusBadRequest, "target_user_id form field is required for admins", nil)
+			return
+		}
+	} else {
+		targetUserID = viewer.ID
+	}
+
+	if err := h.store.MarkMessagesAsSeen(r.Context(), targetUserID, viewer.Role); err != nil {
+		response.JSON(w, http.StatusInternalServerError, "failed to update messages", nil)
+		return
+	}
+
+	response.JSON(w, http.StatusOK, "messages marked as seen", nil)
+}
 

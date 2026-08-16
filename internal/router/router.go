@@ -6,33 +6,48 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/yourusername/go-starter/internal/config"
 	"github.com/yourusername/go-starter/internal/handler"
 	"github.com/yourusername/go-starter/internal/middleware"
+	"github.com/yourusername/go-starter/internal/socket"
 	"github.com/yourusername/go-starter/internal/store"
 )
 
 // New builds and returns the fully configured HTTP router.
-func New(db *pgxpool.Pool) http.Handler {
+func New(db *pgxpool.Pool, cfg *config.Config) http.Handler {
 	r := chi.NewRouter()
 
 	// Global middleware
 	r.Use(chimiddleware.Recoverer)
 	r.Use(middleware.Logger)
 
-	helloHandler := handler.NewHelloHandler()
+	// Initialize Store and Hub
+	s := store.NewStore(db)
+	hub := socket.NewHub(s)
+	go hub.Run()
+
 	healthHandler := handler.NewHealthHandler(db)
-	messageHandler := handler.NewMessageHandler(store.NewMessageStore(db))
+	wsHandler := handler.NewWebSocketHandler(s, hub, cfg.HMACSecret)
+	historyHandler := handler.NewHistoryHandler(s)
+	adminHandler := handler.NewAdminHandler(s)
+	messageHandler := handler.NewMessageHandler(s, hub)
 
-	r.Route("/api/v1", func(api chi.Router) {
-		api.Get("/hello", helloHandler.Hello)
-		api.Get("/health", healthHandler.Health)
+	// Health Check Endpoint (checks service and PostgreSQL connection)
+	r.Get("/health", healthHandler.Health)
+	r.Get("/api/health", healthHandler.Health)
 
-		// Messages
-		api.Post("/messages", messageHandler.CreateMessage)
-		api.Get("/messages", messageHandler.ListMessages)
-		api.Get("/messages/{id}", messageHandler.GetMessage)
+	// WebSocket Endpoint
+	r.Get("/ws", wsHandler.ServeWS)
+
+	// REST APIs for Real-time Chat System
+	r.Route("/api", func(r chi.Router) {
+		r.Use(middleware.HMACAuth(cfg.HMACSecret, s))
+		r.Get("/ws/ticket", wsHandler.GetTicket)
+		r.Get("/messages", historyHandler.GetHistory)
+		r.Post("/messages", messageHandler.SendMessage)
+		r.Post("/messages/seen", messageHandler.MarkMessagesSeen)
+		r.Get("/admin/conversations", adminHandler.GetConversations)
 	})
 
 	return r
 }
-

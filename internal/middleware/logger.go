@@ -1,7 +1,10 @@
 package middleware
 
 import (
+	"bufio"
+	"errors"
 	"log"
+	"net"
 	"net/http"
 	"time"
 )
@@ -14,7 +17,15 @@ func Logger(next http.Handler) http.Handler {
 
 		next.ServeHTTP(sw, r)
 
-		log.Printf("%s %s -> %d (%s)", r.Method, r.URL.Path, sw.status, time.Since(start))
+		if r.URL.Path == "/ws" {
+			if sw.status == http.StatusSwitchingProtocols {
+				log.Printf("%s %s -> WS CONNECTED", r.Method, r.URL.Path)
+			} else {
+				log.Printf("%s %s -> WS FAILED (%d)", r.Method, r.URL.Path, sw.status)
+			}
+		} else {
+			log.Printf("%s %s -> %d (%s)", r.Method, r.URL.Path, sw.status, time.Since(start))
+		}
 	})
 }
 
@@ -27,3 +38,12 @@ func (sw *statusWriter) WriteHeader(status int) {
 	sw.status = status
 	sw.ResponseWriter.WriteHeader(status)
 }
+
+func (sw *statusWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	hijacker, ok := sw.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, errors.New("hijack not supported")
+	}
+	return hijacker.Hijack()
+}
+
