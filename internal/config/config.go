@@ -12,6 +12,7 @@ type Config struct {
 	Port        string
 	DatabaseURL string
 	Env         string
+	HMACSecret  string
 }
 
 // Load reads configuration from a .env file (if present) and environment
@@ -25,6 +26,7 @@ func Load() *Config {
 		Port:        getEnv("PORT", "8080"),
 		DatabaseURL: getEnv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/chat-api?sslmode=disable"),
 		Env:         getEnv("APP_ENV", "development"),
+		HMACSecret:  getEnv("HMAC_SECRET", "b9f3f1c8f0a74d4e9a2d8c1e7f6b5a3c_test_private"),
 	}
 
 	return cfg
