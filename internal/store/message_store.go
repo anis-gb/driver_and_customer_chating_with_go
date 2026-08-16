@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -76,10 +77,32 @@ func (s *Store) GetUserByID(ctx context.Context, id string) (*User, error) {
 
 // InsertMessage stores a chat message in PostgreSQL and returns the details.
 func (s *Store) InsertMessage(ctx context.Context, userID string, adminID *string, sendedBy string, content string) (*Message, error) {
-	const query = `
-		INSERT INTO messages (user_id, admin_id, sended_by, content)
+	var table string
+	if sendedBy == "CUSTOMER" {
+		table = "customer_messages"
+	} else if sendedBy == "DRIVER" {
+		table = "driver_messages"
+	} else if sendedBy == "ADMIN" {
+		// Admin reply: find the target user's role to know which table to use
+		targetUser, err := s.GetUserByID(ctx, userID)
+		if err != nil {
+			return nil, err
+		}
+		if targetUser.Role == "CUSTOMER" {
+			table = "customer_messages"
+		} else if targetUser.Role == "DRIVER" {
+			table = "driver_messages"
+		} else {
+			return nil, fmt.Errorf("invalid target user role for admin reply: %s", targetUser.Role)
+		}
+	} else {
+		return nil, fmt.Errorf("invalid sender role: %s", sendedBy)
+	}
+
+	query := fmt.Sprintf(`
+		INSERT INTO %s (user_id, admin_id, sended_by, content)
 		VALUES ($1, $2, $3, $4)
-		RETURNING id, user_id, admin_id, sended_by, content, seen, created_at, updated_at`
+		RETURNING id, user_id, admin_id, sended_by, content, seen, created_at, updated_at`, table)
 
 	msg := &Message{}
 	err := s.db.QueryRow(ctx, query, userID, adminID, sendedBy, content).
@@ -97,29 +120,44 @@ func (s *Store) GetChatHistory(ctx context.Context, userID string, cursorTime ti
 
 	queryLimit := limit + 1
 
+	// Determine user role to select the correct table
+	user, err := s.GetUserByID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	var table string
+	if user.Role == "CUSTOMER" {
+		table = "customer_messages"
+	} else if user.Role == "DRIVER" {
+		table = "driver_messages"
+	} else {
+		return nil, fmt.Errorf("invalid user role for chat history: %s", user.Role)
+	}
+
 	if cursorTime.IsZero() {
-		const query = `
+		query := fmt.Sprintf(`
 			SELECT m.id, m.user_id, m.admin_id, m.sended_by, 
 			       CASE WHEN m.sended_by = 'ADMIN' THEN COALESCE(a.name, 'Admin') ELSE u.name END as sender_name,
 			       m.content, m.seen, m.created_at
-			FROM messages m
+			FROM %s m
 			JOIN users u ON m.user_id = u.id
 			LEFT JOIN users a ON m.admin_id = a.id
 			WHERE m.user_id = $1
 			ORDER BY m.created_at DESC
-			LIMIT $2`
+			LIMIT $2`, table)
 		rows, err = s.db.Query(ctx, query, userID, queryLimit)
 	} else {
-		const query = `
+		query := fmt.Sprintf(`
 			SELECT m.id, m.user_id, m.admin_id, m.sended_by, 
 			       CASE WHEN m.sended_by = 'ADMIN' THEN COALESCE(a.name, 'Admin') ELSE u.name END as sender_name,
 			       m.content, m.seen, m.created_at
-			FROM messages m
+			FROM %s m
 			JOIN users u ON m.user_id = u.id
 			LEFT JOIN users a ON m.admin_id = a.id
 			WHERE m.user_id = $1 AND m.created_at < $2
 			ORDER BY m.created_at DESC
-			LIMIT $3`
+			LIMIT $3`, table)
 		rows, err = s.db.Query(ctx, query, userID, cursorTime, queryLimit)
 	}
 
@@ -151,18 +189,22 @@ func (s *Store) GetAdminConversations(ctx context.Context) ([]AdminConversation,
 		SELECT 
 			u.id AS user_id,
 			u.name AS customer_name,
-            u.role AS role,
+			u.role AS role,
 			COALESCE(m.content, '') AS last_message,
 			COALESCE(m.created_at, u.created_at) AS updated_at
 		FROM users u
 		LEFT JOIN LATERAL (
 			SELECT content, created_at
-			FROM messages
-			WHERE user_id = u.id
+			FROM customer_messages
+			WHERE u.role = 'CUSTOMER' AND user_id = u.id
+			UNION ALL
+			SELECT content, created_at
+			FROM driver_messages
+			WHERE u.role = 'DRIVER' AND user_id = u.id
 			ORDER BY created_at DESC
 			LIMIT 1
 		) m ON true
-        WHERE u.role IN ('CUSTOMER', 'DRIVER')
+		WHERE u.role IN ('CUSTOMER', 'DRIVER')
 		ORDER BY updated_at DESC`
 
 	rows, err := s.db.Query(ctx, query)
@@ -189,22 +231,36 @@ func (s *Store) GetAdminConversations(ctx context.Context) ([]AdminConversation,
 
 // MarkMessagesAsSeen updates the 'seen' status to true for messages in a chat thread.
 func (s *Store) MarkMessagesAsSeen(ctx context.Context, targetUserID string, viewerRole string) error {
+	// Determine user role to choose target table
+	user, err := s.GetUserByID(ctx, targetUserID)
+	if err != nil {
+		return err
+	}
+
+	var table string
+	if user.Role == "CUSTOMER" {
+		table = "customer_messages"
+	} else if user.Role == "DRIVER" {
+		table = "driver_messages"
+	} else {
+		return fmt.Errorf("invalid target user role for marking seen: %s", user.Role)
+	}
+
 	// If an Admin views the chat, mark all messages NOT from an Admin as seen
 	// If a Customer/Driver views the chat, mark all messages FROM an Admin as seen
 	var query string
-	
 	if viewerRole == "ADMIN" {
-		query = `
-			UPDATE messages 
+		query = fmt.Sprintf(`
+			UPDATE %s 
 			SET seen = true, updated_at = NOW() 
-			WHERE user_id = $1 AND sended_by != 'ADMIN' AND seen = false`
+			WHERE user_id = $1 AND sended_by != 'ADMIN' AND seen = false`, table)
 	} else {
-		query = `
-			UPDATE messages 
+		query = fmt.Sprintf(`
+			UPDATE %s 
 			SET seen = true, updated_at = NOW() 
-			WHERE user_id = $1 AND sended_by = 'ADMIN' AND seen = false`
+			WHERE user_id = $1 AND sended_by = 'ADMIN' AND seen = false`, table)
 	}
 
-	_, err := s.db.Exec(ctx, query, targetUserID)
+	_, err = s.db.Exec(ctx, query, targetUserID)
 	return err
 }
