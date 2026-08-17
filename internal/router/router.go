@@ -73,6 +73,7 @@ func New(db *pgxpool.Pool) http.Handler {
 	r.Get("/api/customer/messages", customerHistory.GetCustomerHistory)
 	r.Post("/api/customer/messages", customerMessage.SendCustomerMessage)
 	r.Post("/api/customer/messages/seen", customerMessage.MarkCustomerMessagesSeen)
+	r.Patch("/api/customer/messages/{id}", customerMessage.EditCustomerMessage)
 
 	// Driver Chat Endpoint
 	r.Get("/api/driver/messages", driverHistory.GetDriverHistory)
