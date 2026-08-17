@@ -6,7 +6,6 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/yourusername/go-starter/internal/config"
 	"github.com/yourusername/go-starter/internal/handler"
 	"github.com/yourusername/go-starter/internal/middleware"
 	"github.com/yourusername/go-starter/internal/socket"
@@ -14,7 +13,7 @@ import (
 )
 
 // New builds and returns the fully configured HTTP router.
-func New(db *pgxpool.Pool, cfg *config.Config) http.Handler {
+func New(db *pgxpool.Pool) http.Handler {
 	r := chi.NewRouter()
 
 	// Global middleware
@@ -41,7 +40,7 @@ func New(db *pgxpool.Pool, cfg *config.Config) http.Handler {
 	go hub.Run()
 
 	healthHandler := handler.NewHealthHandler(db)
-	wsHandler := handler.NewWebSocketHandler(s, hub, cfg.HMACSecret)
+	wsHandler := handler.NewWebSocketHandler(s, hub)
 	historyHandler := handler.NewHistoryHandler(s)
 	adminHandler := handler.NewAdminHandler(s)
 	messageHandler := handler.NewMessageHandler(s, hub)
@@ -54,14 +53,19 @@ func New(db *pgxpool.Pool, cfg *config.Config) http.Handler {
 	r.Get("/ws", wsHandler.ServeWS)
 
 	// REST APIs for Real-time Chat System
-	r.Route("/api", func(r chi.Router) {
-		r.Use(middleware.HMACAuth(cfg.HMACSecret, s))
-		r.Get("/ws/ticket", wsHandler.GetTicket)
-		r.Get("/messages", historyHandler.GetHistory)
-		r.Post("/messages", messageHandler.SendMessage)
-		r.Post("/messages/seen", messageHandler.MarkMessagesSeen)
-		r.Get("/admin/conversations", adminHandler.GetConversations)
-	})
+	// Customer Chat Endpoint
+	r.Get("/api/customer/messages", historyHandler.GetCustomerHistory)
+	r.Post("/api/customer/messages", messageHandler.SendCustomerMessage)
+	r.Post("/api/customer/messages/seen", messageHandler.MarkCustomerMessagesSeen)
+
+	// Driver Chat Endpoint
+	r.Get("/api/driver/messages", historyHandler.GetDriverHistory)
+	r.Post("/api/driver/messages", messageHandler.SendDriverMessage)
+	r.Post("/api/driver/messages/seen", messageHandler.MarkDriverMessagesSeen)
+
+	r.Get("/api/admin/conversations", adminHandler.GetConversations)
+	r.Get("/api/admin/conversations/customers", adminHandler.GetCustomerConversations)
+	r.Get("/api/admin/conversations/drivers", adminHandler.GetDriverConversations)
 
 	return r
 }
