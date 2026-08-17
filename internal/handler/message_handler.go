@@ -101,7 +101,7 @@ func (h *MessageHandler) sendMessageForType(w http.ResponseWriter, r *http.Reque
 		Seen:       msg.Seen,
 		CreatedAt:  msg.CreatedAt,
 	}
-	
+
 	h.hub.BroadcastMessage(outgoingMsg)
 
 	response.JSON(w, http.StatusCreated, "message sent", outgoingMsg)
@@ -154,4 +154,3 @@ func (h *MessageHandler) markMessagesSeenForType(w http.ResponseWriter, r *http.
 
 	response.JSON(w, http.StatusOK, "messages marked as seen", nil)
 }
-
