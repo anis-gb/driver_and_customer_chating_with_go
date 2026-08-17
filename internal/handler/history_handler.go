@@ -58,6 +58,9 @@ func (h *HistoryHandler) getHistoryForType(w http.ResponseWriter, r *http.Reques
 	// 3. Parse optional cursor (RFC3339 timestamp)
 	var cursorTime time.Time
 	cursorStr := r.URL.Query().Get("cursor")
+	if cursorStr == "" {
+		cursorStr = r.URL.Query().Get("before")
+	}
 	if cursorStr != "" {
 		var parseErr error
 		cursorTime, parseErr = time.Parse(time.RFC3339, cursorStr)

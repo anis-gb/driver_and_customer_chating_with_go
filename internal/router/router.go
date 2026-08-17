@@ -24,7 +24,7 @@ func New(db *pgxpool.Pool) http.Handler {
 	r.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Access-Control-Allow-Origin", "*")
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 			if r.Method == "OPTIONS" {
 				w.WriteHeader(http.StatusOK)
@@ -62,6 +62,8 @@ func New(db *pgxpool.Pool) http.Handler {
 	r.Get("/api/driver/messages", historyHandler.GetDriverHistory)
 	r.Post("/api/driver/messages", messageHandler.SendDriverMessage)
 	r.Post("/api/driver/messages/seen", messageHandler.MarkDriverMessagesSeen)
+	r.Patch("/api/driver/messages/{id}", messageHandler.EditDriverMessage)
+
 
 	r.Get("/api/admin/conversations", adminHandler.GetConversations)
 	r.Get("/api/admin/conversations/customers", adminHandler.GetCustomerConversations)

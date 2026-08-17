@@ -3,6 +3,7 @@ package handler
 import (
 	"net/http"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/yourusername/go-starter/internal/socket"
 	"github.com/yourusername/go-starter/internal/store"
 	"github.com/yourusername/go-starter/pkg/response"
@@ -92,6 +93,7 @@ func (h *MessageHandler) sendMessageForType(w http.ResponseWriter, r *http.Reque
 
 	// Broadcast via WebSocket
 	outgoingMsg := store.OutgoingMessage{
+		Type:       "NEW_MESSAGE",
 		ID:         msg.ID,
 		UserID:     msg.UserID,
 		AdminID:    msg.AdminID,
@@ -152,6 +154,53 @@ func (h *MessageHandler) markMessagesSeenForType(w http.ResponseWriter, r *http.
 		return
 	}
 
+	// Broadcast READ_STATUS
+	readMsg := store.OutgoingMessage{
+		Type:     "READ_STATUS",
+		UserID:   targetUserID,
+		SendedBy: authUserType,
+		Seen:     true,
+	}
+	h.hub.BroadcastMessage(readMsg)
+
 	response.JSON(w, http.StatusOK, "messages marked as seen", nil)
 }
+
+func (h *MessageHandler) EditDriverMessage(w http.ResponseWriter, r *http.Request) {
+	messageID := chi.URLParam(r, "id")
+	if messageID == "" {
+		response.JSON(w, http.StatusBadRequest, "message id is required", nil)
+		return
+	}
+
+	if err := r.ParseMultipartForm(10 << 20); err != nil {
+		if err := r.ParseForm(); err != nil {
+			response.JSON(w, http.StatusBadRequest, "failed to parse form data", nil)
+			return
+		}
+	}
+
+	authUserType := r.FormValue("user_type")
+	if authUserType != "ADMIN" {
+		response.JSON(w, http.StatusForbidden, "only admins can edit messages", nil)
+		return
+	}
+
+	content := r.FormValue("content")
+	if content == "" {
+		response.JSON(w, http.StatusBadRequest, "content cannot be empty", nil)
+		return
+	}
+
+	msg, err := h.store.EditMessage(r.Context(), messageID, content, "DRIVER")
+	if err != nil {
+		response.JSON(w, http.StatusInternalServerError, "failed to edit message or message not found", nil)
+		return
+	}
+
+	h.hub.BroadcastMessage(*msg)
+
+	response.JSON(w, http.StatusOK, "message edited successfully", msg)
+}
+
 
