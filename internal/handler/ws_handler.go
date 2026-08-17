@@ -35,38 +35,18 @@ func NewWebSocketHandler(s *store.Store, h *socket.Hub) *WebSocketHandler {
 
 // ServeWS upgrades the connection and registers the client in the hub.
 func (h *WebSocketHandler) ServeWS(w http.ResponseWriter, r *http.Request) {
+	// 1. Extract query parameters
 	userID := r.URL.Query().Get("user_id")
 	if userID == "" {
 		response.JSON(w, http.StatusBadRequest, "user_id query parameter is required", nil)
 		return
 	}
 
-	// 1. Fetch user from DB to verify identity and get their role
-	user, err := h.store.GetUserByID(r.Context(), userID)
-	if err != nil {
-		log.Printf("WebSocket connection rejected: user %s not found: %v", userID, err)
-		response.JSON(w, http.StatusNotFound, "user not found", nil)
+	userType := r.URL.Query().Get("user_type")
+	if userType == "" {
+		response.JSON(w, http.StatusBadRequest, "user_type query parameter is required", nil)
 		return
 	}
-
-	// For CUSTOMER and DRIVER, verify HMAC signature via query params (temporarily bypassed for dev testing)
-	/*
-	if user.Role != "ADMIN" {
-		timestamp := r.URL.Query().Get("timestamp")
-		nonce := r.URL.Query().Get("nonce")
-		signature := r.URL.Query().Get("signature")
-
-		if timestamp == "" || nonce == "" || signature == "" {
-			response.JSON(w, http.StatusUnauthorized, "missing authentication query parameters (timestamp, nonce, signature)", nil)
-			return
-		}
-
-		if err := auth.VerifySignature(timestamp, nonce, signature, h.secret); err != nil {
-			response.JSON(w, http.StatusUnauthorized, "invalid signature: "+err.Error(), nil)
-			return
-		}
-	}
-	*/
 
 	// 2. Upgrade to WebSocket
 	conn, err := upgrader.Upgrade(w, r, nil)
@@ -77,9 +57,9 @@ func (h *WebSocketHandler) ServeWS(w http.ResponseWriter, r *http.Request) {
 
 	// 3. Create and register client
 	client := &socket.Client{
-		UserID: user.ID,
-		Name:   user.Name,
-		Role:   user.Role,
+		UserID: userID,
+		Name:   userType, // Decoupled: Name fallback to Type
+		Role:   userType,
 		Conn:   conn,
 		Send:   make(chan []byte, 256),
 		Hub:    h.hub,

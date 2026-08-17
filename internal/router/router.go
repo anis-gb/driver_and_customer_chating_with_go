@@ -20,6 +20,20 @@ func New(db *pgxpool.Pool) http.Handler {
 	r.Use(chimiddleware.Recoverer)
 	r.Use(middleware.Logger)
 
+	// CORS Middleware
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			if r.Method == "OPTIONS" {
+				w.WriteHeader(http.StatusOK)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	})
+
 	// Initialize Store and Hub
 	s := store.NewStore(db)
 	hub := socket.NewHub(s)
@@ -39,10 +53,19 @@ func New(db *pgxpool.Pool) http.Handler {
 	r.Get("/ws", wsHandler.ServeWS)
 
 	// REST APIs for Real-time Chat System
-	r.Get("/api/messages", historyHandler.GetHistory)
-	r.Post("/api/messages", messageHandler.SendMessage)
-	r.Post("/api/messages/seen", messageHandler.MarkMessagesSeen)
+	// Customer Chat Endpoint
+	r.Get("/api/customer/messages", historyHandler.GetCustomerHistory)
+	r.Post("/api/customer/messages", messageHandler.SendCustomerMessage)
+	r.Post("/api/customer/messages/seen", messageHandler.MarkCustomerMessagesSeen)
+
+	// Driver Chat Endpoint
+	r.Get("/api/driver/messages", historyHandler.GetDriverHistory)
+	r.Post("/api/driver/messages", messageHandler.SendDriverMessage)
+	r.Post("/api/driver/messages/seen", messageHandler.MarkDriverMessagesSeen)
+
 	r.Get("/api/admin/conversations", adminHandler.GetConversations)
+	r.Get("/api/admin/conversations/customers", adminHandler.GetCustomerConversations)
+	r.Get("/api/admin/conversations/drivers", adminHandler.GetDriverConversations)
 
 	return r
 }

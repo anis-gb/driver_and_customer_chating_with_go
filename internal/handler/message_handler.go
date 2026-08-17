@@ -20,7 +20,15 @@ func NewMessageHandler(s *store.Store, h *socket.Hub) *MessageHandler {
 	}
 }
 
-func (h *MessageHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
+func (h *MessageHandler) SendCustomerMessage(w http.ResponseWriter, r *http.Request) {
+	h.sendMessageForType(w, r, "CUSTOMER")
+}
+
+func (h *MessageHandler) SendDriverMessage(w http.ResponseWriter, r *http.Request) {
+	h.sendMessageForType(w, r, "DRIVER")
+}
+
+func (h *MessageHandler) sendMessageForType(w http.ResponseWriter, r *http.Request, targetUserType string) {
 	// Parse multipart form data with a max memory of 10MB
 	if err := r.ParseMultipartForm(10 << 20); err != nil {
 		if err := r.ParseForm(); err != nil {
@@ -36,10 +44,9 @@ func (h *MessageHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sender, err := h.store.GetUserByID(r.Context(), authUserID)
-	if err != nil {
-		response.JSON(w, http.StatusUnauthorized, "invalid sender user_id", nil)
-		return
+	authUserType := r.FormValue("user_type")
+	if authUserType == "" {
+		authUserType = targetUserType
 	}
 
 	content := r.FormValue("content")
@@ -51,24 +58,36 @@ func (h *MessageHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	var targetUserID string
 	var adminID *string
 
-	if sender.Role == "ADMIN" {
+	if authUserType == "ADMIN" {
 		targetUserID = r.FormValue("target_user_id")
 		if targetUserID == "" {
 			response.JSON(w, http.StatusBadRequest, "target_user_id form field is required when admin sends a message", nil)
 			return
 		}
-		adminID = &sender.ID
+		adminID = &authUserID
 	} else {
 		// Customers and drivers always send messages to their own chat thread
-		targetUserID = sender.ID
+		targetUserID = authUserID
 		adminID = nil
+		// Enforce alignment of sender type with endpoint channel
+		authUserType = targetUserType
 	}
 
 	// Persist the message
-	msg, err := h.store.InsertMessage(r.Context(), targetUserID, adminID, sender.Role, content)
+	msg, err := h.store.InsertMessage(r.Context(), targetUserID, adminID, authUserType, content, targetUserType)
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, "failed to save message", nil)
 		return
+	}
+
+	// Determine sender display name placeholder
+	senderName := "User"
+	if authUserType == "ADMIN" {
+		senderName = "Support Admin"
+	} else if authUserType == "CUSTOMER" {
+		senderName = "Customer"
+	} else if authUserType == "DRIVER" {
+		senderName = "Driver"
 	}
 
 	// Broadcast via WebSocket
@@ -77,7 +96,7 @@ func (h *MessageHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		UserID:     msg.UserID,
 		AdminID:    msg.AdminID,
 		SendedBy:   msg.SendedBy,
-		SenderName: sender.Name, // This gets anonymized inside BroadcastMessage if needed
+		SenderName: senderName,
 		Content:    msg.Content,
 		Seen:       msg.Seen,
 		CreatedAt:  msg.CreatedAt,
@@ -88,7 +107,15 @@ func (h *MessageHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	response.JSON(w, http.StatusCreated, "message sent", outgoingMsg)
 }
 
-func (h *MessageHandler) MarkMessagesSeen(w http.ResponseWriter, r *http.Request) {
+func (h *MessageHandler) MarkCustomerMessagesSeen(w http.ResponseWriter, r *http.Request) {
+	h.markMessagesSeenForType(w, r, "CUSTOMER")
+}
+
+func (h *MessageHandler) MarkDriverMessagesSeen(w http.ResponseWriter, r *http.Request) {
+	h.markMessagesSeenForType(w, r, "DRIVER")
+}
+
+func (h *MessageHandler) markMessagesSeenForType(w http.ResponseWriter, r *http.Request, targetUserType string) {
 	if err := r.ParseMultipartForm(10 << 20); err != nil {
 		if err := r.ParseForm(); err != nil {
 			response.JSON(w, http.StatusBadRequest, "failed to parse form data", nil)
@@ -102,24 +129,25 @@ func (h *MessageHandler) MarkMessagesSeen(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	viewer, err := h.store.GetUserByID(r.Context(), authUserID)
-	if err != nil {
-		response.JSON(w, http.StatusUnauthorized, "invalid user_id", nil)
-		return
+	authUserType := r.FormValue("user_type")
+	if authUserType == "" {
+		authUserType = targetUserType
 	}
 
 	var targetUserID string
-	if viewer.Role == "ADMIN" {
+	if authUserType == "ADMIN" {
 		targetUserID = r.FormValue("target_user_id")
 		if targetUserID == "" {
 			response.JSON(w, http.StatusBadRequest, "target_user_id form field is required for admins", nil)
 			return
 		}
 	} else {
-		targetUserID = viewer.ID
+		targetUserID = authUserID
+		// Enforce alignment of sender type with endpoint channel
+		authUserType = targetUserType
 	}
 
-	if err := h.store.MarkMessagesAsSeen(r.Context(), targetUserID, viewer.Role); err != nil {
+	if err := h.store.MarkMessagesAsSeen(r.Context(), targetUserID, targetUserType, authUserType); err != nil {
 		response.JSON(w, http.StatusInternalServerError, "failed to update messages", nil)
 		return
 	}
