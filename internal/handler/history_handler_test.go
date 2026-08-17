@@ -11,10 +11,10 @@ import (
 func TestGetHistory_MissingUserID(t *testing.T) {
 	historyHandler := handler.NewHistoryHandler(nil)
 
-	req := httptest.NewRequest("GET", "/api/messages", nil)
+	req := httptest.NewRequest("GET", "/api/customer/messages", nil)
 	rr := httptest.NewRecorder()
 
-	historyHandler.GetHistory(rr, req)
+	historyHandler.GetCustomerHistory(rr, req)
 
 	if status := rr.Code; status != http.StatusBadRequest {
 		t.Errorf("handler returned wrong status code: got %v want %v", status, http.StatusBadRequest)

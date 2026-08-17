@@ -45,17 +45,16 @@ func NewWebSocketHandler(s *store.Store, h *socket.Hub, secret string) *WebSocke
 
 // ServeWS upgrades the connection and registers the client in the hub.
 func (h *WebSocketHandler) ServeWS(w http.ResponseWriter, r *http.Request) {
+	// 1. Extract query parameters
 	userID := r.URL.Query().Get("user_id")
 	if userID == "" {
 		response.JSON(w, http.StatusBadRequest, "user_id query parameter is required", nil)
 		return
 	}
 
-	// 1. Fetch user from DB to verify identity and get their role
-	user, err := h.store.GetUserByID(r.Context(), userID)
-	if err != nil {
-		log.Printf("WebSocket connection rejected: user %s not found: %v", userID, err)
-		response.JSON(w, http.StatusNotFound, "user not found", nil)
+	userType := r.URL.Query().Get("user_type")
+	if userType == "" {
+		response.JSON(w, http.StatusBadRequest, "user_type query parameter is required", nil)
 		return
 	}
 
@@ -85,9 +84,9 @@ func (h *WebSocketHandler) ServeWS(w http.ResponseWriter, r *http.Request) {
 
 	// 3. Create and register client
 	client := &socket.Client{
-		UserID: user.ID,
-		Name:   user.Name,
-		Role:   user.Role,
+		UserID: userID,
+		Name:   userType, // Decoupled: Name fallback to Type
+		Role:   userType,
 		Conn:   conn,
 		Send:   make(chan []byte, 256),
 		Hub:    h.hub,

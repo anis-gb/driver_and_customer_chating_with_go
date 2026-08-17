@@ -18,23 +18,14 @@ func NewAdminHandler(s *store.Store) *AdminHandler {
 	return &AdminHandler{store: s}
 }
 
-// GetConversations fetches a list of all active conversations (Admin Only).
-// GET /api/admin/conversations?user_id=...
 func (h *AdminHandler) GetConversations(w http.ResponseWriter, r *http.Request) {
-	userID := r.URL.Query().Get("user_id")
-	if userID == "" {
-		response.JSON(w, http.StatusBadRequest, "user_id query parameter is required", nil)
+	userType := r.URL.Query().Get("user_type")
+	if userType == "" {
+		response.JSON(w, http.StatusBadRequest, "user_type query parameter is required", nil)
 		return
 	}
 
-	// 1. Verify user exists and is an ADMIN
-	user, err := h.store.GetUserByID(r.Context(), userID)
-	if err != nil {
-		response.JSON(w, http.StatusUnauthorized, "user not found", nil)
-		return
-	}
-
-	if user.Role != "ADMIN" {
+	if userType != "ADMIN" {
 		response.JSON(w, http.StatusForbidden, "access denied: admin role required", nil)
 		return
 	}
@@ -53,3 +44,56 @@ func (h *AdminHandler) GetConversations(w http.ResponseWriter, r *http.Request) 
 
 	response.RawJSON(w, http.StatusOK, conversations)
 }
+
+func (h *AdminHandler) GetDriverConversations(w http.ResponseWriter, r *http.Request) {
+	userType := r.URL.Query().Get("user_type")
+	if userType == "" {
+		response.JSON(w, http.StatusBadRequest, "user_type query parameter is required", nil)
+		return
+	}
+
+	if userType != "ADMIN" {
+		response.JSON(w, http.StatusForbidden, "access denied: admin role required", nil)
+		return
+	}
+
+	conversations, err := h.store.GetAdminConversationsForType(r.Context(), "DRIVER")
+	if err != nil {
+		log.Printf("Failed to fetch admin driver conversations: %v", err)
+		response.JSON(w, http.StatusInternalServerError, "failed to fetch driver conversations", nil)
+		return
+	}
+
+	if conversations == nil {
+		conversations = []store.AdminConversation{}
+	}
+
+	response.RawJSON(w, http.StatusOK, conversations)
+}
+
+func (h *AdminHandler) GetCustomerConversations(w http.ResponseWriter, r *http.Request) {
+	userType := r.URL.Query().Get("user_type")
+	if userType == "" {
+		response.JSON(w, http.StatusBadRequest, "user_type query parameter is required", nil)
+		return
+	}
+
+	if userType != "ADMIN" {
+		response.JSON(w, http.StatusForbidden, "access denied: admin role required", nil)
+		return
+	}
+
+	conversations, err := h.store.GetAdminConversationsForType(r.Context(), "CUSTOMER")
+	if err != nil {
+		log.Printf("Failed to fetch admin customer conversations: %v", err)
+		response.JSON(w, http.StatusInternalServerError, "failed to fetch customer conversations", nil)
+		return
+	}
+
+	if conversations == nil {
+		conversations = []store.AdminConversation{}
+	}
+
+	response.RawJSON(w, http.StatusOK, conversations)
+}
+

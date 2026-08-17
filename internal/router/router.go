@@ -21,6 +21,20 @@ func New(db *pgxpool.Pool, cfg *config.Config) http.Handler {
 	r.Use(chimiddleware.Recoverer)
 	r.Use(middleware.Logger)
 
+	// CORS Middleware
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			if r.Method == "OPTIONS" {
+				w.WriteHeader(http.StatusOK)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	})
+
 	// Initialize Store and Hub
 	s := store.NewStore(db)
 	hub := socket.NewHub(s)
