@@ -13,4 +13,5 @@ watch:
 	air
 
 migrate-up:
-	psql "$$DATABASE_URL" -f migrations/000003_realtime_schema.sql
+	psql "$$DATABASE_URL" -f migrations/000003_customer_schema.sql
+	psql "$$DATABASE_URL" -f migrations/000004_driver_schema.sql

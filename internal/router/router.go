@@ -2,6 +2,7 @@ package router
 
 import (
 	"net/http"
+	"os"
 
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
@@ -42,15 +43,19 @@ func New(db *pgxpool.Pool) http.Handler {
 	hub := socket.NewHub(s)
 	go hub.Run()
 
+	// Ensure uploads directories exist so FileServer can serve them
+	_ = os.MkdirAll("uploads/customer", 0o755)
+	_ = os.MkdirAll("uploads/driver", 0o755)
+
 	healthHandler := handler.NewHealthHandler(db)
 	wsHandler := handler.NewWebSocketHandler(s, hub)
-	
+
 	customerHistory := customer.NewHistoryHandler(s)
 	customerMessage := customer.NewMessageHandler(s, hub)
-	
+
 	driverHistory := driver.NewHistoryHandler(s)
 	driverMessage := driver.NewMessageHandler(s, hub)
-	
+
 	adminHandler := admin.NewAdminHandler(s)
 
 	// Health Check Endpoint (checks service and PostgreSQL connection)
@@ -72,10 +77,13 @@ func New(db *pgxpool.Pool) http.Handler {
 	r.Post("/api/driver/messages/seen", driverMessage.MarkDriverMessagesSeen)
 	r.Patch("/api/driver/messages/{id}", driverMessage.EditDriverMessage)
 
-
 	r.Get("/api/admin/conversations", adminHandler.GetConversations)
 	r.Get("/api/admin/conversations/customers", adminHandler.GetCustomerConversations)
 	r.Get("/api/admin/conversations/drivers", adminHandler.GetDriverConversations)
+
+	// Serve uploaded files under /uploads/
+	fs := http.StripPrefix("/uploads/", http.FileServer(http.Dir("uploads")))
+	r.Handle("/uploads/*", fs)
 
 	return r
 }

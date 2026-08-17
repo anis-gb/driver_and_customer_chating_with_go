@@ -92,7 +92,7 @@ func (h *MessageHandler) SendCustomerMessage(w http.ResponseWriter, r *http.Requ
 		Seen:       msg.Seen,
 		CreatedAt:  msg.CreatedAt,
 	}
-	
+
 	h.hub.BroadcastMessage(outgoingMsg)
 
 	response.JSON(w, http.StatusCreated, "message sent", outgoingMsg)
