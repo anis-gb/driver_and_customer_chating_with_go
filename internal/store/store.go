@@ -25,6 +25,10 @@ type Message struct {
 	VoiceMessages string    `json:"voice_messages,omitempty"`
 	Photo         string    `json:"photo,omitempty"`
 	File          string    `json:"file,omitempty"`
+	UserPhone     string    `json:"user_phone,omitempty"`
+	FullName      string    `json:"full_name,omitempty"`
+	ProfilePicture string   `json:"profile_picture,omitempty"`
+	Gender        string    `json:"gender,omitempty"`
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
 }
@@ -42,6 +46,10 @@ type OutgoingMessage struct {
 	VoiceMessages string    `json:"voice_messages,omitempty"`
 	Photo         string    `json:"photo,omitempty"`
 	File          string    `json:"file,omitempty"`
+	UserPhone     string    `json:"user_phone,omitempty"`
+	FullName      string    `json:"full_name,omitempty"`
+	ProfilePicture string   `json:"profile_picture,omitempty"`
+	Gender        string    `json:"gender,omitempty"`
 	CreatedAt     time.Time `json:"created_at,omitempty"`
 }
 

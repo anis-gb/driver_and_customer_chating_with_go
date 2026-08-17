@@ -44,6 +44,10 @@ func (h *MessageHandler) SendDriverMessage(w http.ResponseWriter, r *http.Reques
 	}
 
 	content := r.FormValue("content")
+	userPhone := r.FormValue("phone_number")
+	fullName := r.FormValue("full_name")
+	profilePicture := r.FormValue("profile_picture")
+	gender := r.FormValue("gender")
 
 	voicePath, err := utils.SaveUploadedFile(r, "voice_messages", "./uploads")
 	if err != nil {
@@ -87,7 +91,7 @@ func (h *MessageHandler) SendDriverMessage(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Persist the message
-	msg, err := h.store.InsertDriverMessage(r.Context(), targetUserID, adminID, authUserType, content, voicePath, photoPath, filePath)
+	msg, err := h.store.InsertDriverMessage(r.Context(), targetUserID, adminID, authUserType, content, voicePath, photoPath, filePath, userPhone, fullName, profilePicture, gender)
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, "failed to save message", nil)
 		return
@@ -114,6 +118,10 @@ func (h *MessageHandler) SendDriverMessage(w http.ResponseWriter, r *http.Reques
 		VoiceMessages: msg.VoiceMessages,
 		Photo:         msg.Photo,
 		File:          msg.File,
+		UserPhone:     msg.UserPhone,
+		FullName:      msg.FullName,
+		ProfilePicture: msg.ProfilePicture,
+		Gender:        msg.Gender,
 		CreatedAt:  msg.CreatedAt,
 	}
 	
