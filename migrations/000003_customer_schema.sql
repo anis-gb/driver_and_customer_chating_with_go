@@ -3,7 +3,7 @@
 CREATE TABLE customer_messages (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id VARCHAR(255) NOT NULL,
-    user_mobile VARCHAR(255),
+    user_phone VARCHAR(255),
     admin_id VARCHAR(255),
     sended_by VARCHAR(20) CHECK (sended_by IN ('ADMIN', 'CUSTOMER', 'DRIVER')) NOT NULL,
     content TEXT NOT NULL,
