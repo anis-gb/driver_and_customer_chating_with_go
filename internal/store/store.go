@@ -16,27 +16,41 @@ type User struct {
 
 // Message represents a persisted chat message.
 type Message struct {
-	ID        string    `json:"id"`
-	UserID    string    `json:"user_id"`
-	AdminID   *string   `json:"admin_id"`
-	SendedBy  string    `json:"sended_by"`
-	Content   string    `json:"content"`
-	Seen      bool      `json:"seen"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID            string    `json:"id"`
+	UserID        string    `json:"user_id"`
+	AdminID       *string   `json:"admin_id"`
+	SendedBy      string    `json:"sended_by"`
+	Content       string    `json:"content"`
+	Seen          bool      `json:"seen"`
+	VoiceMessages string    `json:"voice_messages,omitempty"`
+	Photo         string    `json:"photo,omitempty"`
+	File          string    `json:"file,omitempty"`
+	UserPhone     string    `json:"user_phone,omitempty"`
+	FullName      string    `json:"full_name,omitempty"`
+	ProfilePicture string   `json:"profile_picture,omitempty"`
+	Gender        string    `json:"gender,omitempty"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 // OutgoingMessage represents the structured message sent to clients and returned in history.
 type OutgoingMessage struct {
-	Type       string    `json:"type,omitempty"` // NEW_MESSAGE, EDIT_MESSAGE, DELETE_MESSAGE, READ_STATUS
-	ID         string    `json:"id,omitempty"`
-	UserID     string    `json:"user_id"`
-	AdminID    *string   `json:"admin_id,omitempty"` // empty if anonymized or not an admin
-	SendedBy   string    `json:"sended_by,omitempty"`
-	SenderName string    `json:"sender_name,omitempty"`
-	Content    string    `json:"content,omitempty"`
-	Seen       bool      `json:"seen,omitempty"`
-	CreatedAt  time.Time `json:"created_at,omitempty"`
+	Type          string    `json:"type,omitempty"` // NEW_MESSAGE, EDIT_MESSAGE, DELETE_MESSAGE, READ_STATUS
+	ID            string    `json:"id,omitempty"`
+	UserID        string    `json:"user_id"`
+	AdminID       *string   `json:"admin_id,omitempty"` // empty if anonymized or not an admin
+	SendedBy      string    `json:"sended_by,omitempty"`
+	SenderName    string    `json:"sender_name,omitempty"`
+	Content       string    `json:"content,omitempty"`
+	Seen          bool      `json:"seen,omitempty"`
+	VoiceMessages string    `json:"voice_messages,omitempty"`
+	Photo         string    `json:"photo,omitempty"`
+	File          string    `json:"file,omitempty"`
+	UserPhone     string    `json:"user_phone,omitempty"`
+	FullName      string    `json:"full_name,omitempty"`
+	ProfilePicture string   `json:"profile_picture,omitempty"`
+	Gender        string    `json:"gender,omitempty"`
+	CreatedAt     time.Time `json:"created_at,omitempty"`
 }
 
 // AdminConversation represents an active chat thread summary for admin dashboard.
