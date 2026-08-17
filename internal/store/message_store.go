@@ -31,14 +31,15 @@ type Message struct {
 
 // OutgoingMessage represents the structured message sent to clients and returned in history.
 type OutgoingMessage struct {
-	ID         string    `json:"id"`
+	Type       string    `json:"type,omitempty"` // NEW_MESSAGE, EDIT_MESSAGE, DELETE_MESSAGE, READ_STATUS
+	ID         string    `json:"id,omitempty"`
 	UserID     string    `json:"user_id"`
 	AdminID    *string   `json:"admin_id,omitempty"` // empty if anonymized or not an admin
-	SendedBy   string    `json:"sended_by"`
-	SenderName string    `json:"sender_name"`
-	Content    string    `json:"content"`
-	Seen       bool      `json:"seen"`
-	CreatedAt  time.Time `json:"created_at"`
+	SendedBy   string    `json:"sended_by,omitempty"`
+	SenderName string    `json:"sender_name,omitempty"`
+	Content    string    `json:"content,omitempty"`
+	Seen       bool      `json:"seen,omitempty"`
+	CreatedAt  time.Time `json:"created_at,omitempty"`
 }
 
 // AdminConversation represents an active chat thread summary for admin dashboard.
@@ -334,3 +335,37 @@ func (s *Store) MarkMessagesAsSeen(ctx context.Context, targetUserID string, tar
 	_, err := s.db.Exec(ctx, query, targetUserID)
 	return err
 }
+
+// EditMessage updates the content of a specific message sent by an admin.
+func (s *Store) EditMessage(ctx context.Context, messageID string, content string, role string) (*OutgoingMessage, error) {
+	var table string
+	var defaultName string
+	if role == "CUSTOMER" {
+		table = "customer_messages"
+		defaultName = "Customer"
+	} else if role == "DRIVER" {
+		table = "driver_messages"
+		defaultName = "Driver"
+	} else {
+		return nil, fmt.Errorf("invalid role: %s", role)
+	}
+
+	query := fmt.Sprintf(`
+		UPDATE %s
+		SET content = $1, updated_at = NOW()
+		WHERE id = $2 AND sended_by = 'ADMIN'
+		RETURNING id, user_id, admin_id, sended_by, 
+			CASE WHEN sended_by = 'ADMIN' THEN 'Support Admin' ELSE COALESCE(full_name, '%s') END as sender_name,
+			content, seen, created_at
+	`, table, defaultName)
+
+	var m OutgoingMessage
+	err := s.db.QueryRow(ctx, query, content, messageID).
+		Scan(&m.ID, &m.UserID, &m.AdminID, &m.SendedBy, &m.SenderName, &m.Content, &m.Seen, &m.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	m.Type = "EDIT_MESSAGE"
+	return &m, nil
+}
+
