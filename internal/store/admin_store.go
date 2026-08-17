@@ -38,14 +38,15 @@ func (s *Store) GetAdminConversations(ctx context.Context) ([]AdminConversation,
 					'Driver'
 				) AS full_name,
 				(SELECT profile_picture FROM driver_messages WHERE user_id = dm.user_id AND profile_picture IS NOT NULL AND profile_picture <> '' ORDER BY created_at DESC LIMIT 1) AS profile_picture,
-				(SELECT gender FROM driver_messages WHERE user_id = dm.user_id AND gender IS NOT NULL AND gender <> '' ORDER BY created_at DESC LIMIT 1) AS gender
+				(SELECT gender FROM driver_messages WHERE user_id = dm.user_id AND gender IS NOT NULL AND gender <> '' ORDER BY created_at DESC LIMIT 1) AS gender,
+				(SELECT user_phone FROM driver_messages WHERE user_id = dm.user_id AND user_phone IS NOT NULL AND user_phone <> '' ORDER BY created_at DESC LIMIT 1) AS user_phone
 			FROM driver_messages dm
 			ORDER BY user_id, created_at DESC
 		),
 		all_conversations AS (
-			SELECT user_id, role, last_message, last_message_sender, is_seen, full_name, profile_picture, gender, updated_at FROM latest_customer_msgs
+			SELECT user_id, role, last_message, last_message_sender, is_seen, full_name, profile_picture, gender, '' AS user_phone, updated_at FROM latest_customer_msgs
 			UNION ALL
-			SELECT user_id, role, last_message, last_message_sender, is_seen, full_name, profile_picture, gender, updated_at FROM latest_driver_msgs
+			SELECT user_id, role, last_message, last_message_sender, is_seen, full_name, profile_picture, gender, COALESCE(user_phone, '') AS user_phone, updated_at FROM latest_driver_msgs
 		)
 		SELECT 
 			user_id,
@@ -56,6 +57,7 @@ func (s *Store) GetAdminConversations(ctx context.Context) ([]AdminConversation,
 			is_seen,
 			COALESCE(profile_picture, '') AS profile_picture,
 			COALESCE(gender, 'Male') AS gender,
+			user_phone,
 			updated_at
 		FROM all_conversations
 		ORDER BY updated_at DESC`
@@ -69,7 +71,7 @@ func (s *Store) GetAdminConversations(ctx context.Context) ([]AdminConversation,
 	var conversations []AdminConversation
 	for rows.Next() {
 		var ac AdminConversation
-		if err := rows.Scan(&ac.UserID, &ac.CustomerName, &ac.Role, &ac.LastMessage, &ac.LastMessageSender, &ac.IsSeen, &ac.ProfilePicture, &ac.Gender, &ac.UpdatedAt); err != nil {
+		if err := rows.Scan(&ac.UserID, &ac.CustomerName, &ac.Role, &ac.LastMessage, &ac.LastMessageSender, &ac.IsSeen, &ac.ProfilePicture, &ac.Gender, &ac.UserPhone, &ac.UpdatedAt); err != nil {
 			return nil, err
 		}
 		conversations = append(conversations, ac)
@@ -110,7 +112,8 @@ func (s *Store) GetAdminConversationsForType(ctx context.Context, role string) (
 					'%s'
 				) AS full_name,
 				(SELECT profile_picture FROM %s WHERE user_id = m.user_id AND profile_picture IS NOT NULL AND profile_picture <> '' ORDER BY created_at DESC LIMIT 1) AS profile_picture,
-				(SELECT gender FROM %s WHERE user_id = m.user_id AND gender IS NOT NULL AND gender <> '' ORDER BY created_at DESC LIMIT 1) AS gender
+				(SELECT gender FROM %s WHERE user_id = m.user_id AND gender IS NOT NULL AND gender <> '' ORDER BY created_at DESC LIMIT 1) AS gender,
+				COALESCE((SELECT user_phone FROM %s WHERE user_id = m.user_id AND user_phone IS NOT NULL AND user_phone <> '' ORDER BY created_at DESC LIMIT 1), '') AS user_phone
 			FROM %s m
 			ORDER BY user_id, created_at DESC
 		)
@@ -123,9 +126,10 @@ func (s *Store) GetAdminConversationsForType(ctx context.Context, role string) (
 			is_seen,
 			COALESCE(profile_picture, '') AS profile_picture,
 			COALESCE(gender, 'Male') AS gender,
+			user_phone,
 			updated_at
 		FROM latest_msgs
-		ORDER BY updated_at DESC`, role, table, defaultName, table, table, table)
+		ORDER BY updated_at DESC`, role, table, defaultName, table, table, table, table)
 
 	rows, err := s.db.Query(ctx, query)
 	if err != nil {
@@ -136,7 +140,7 @@ func (s *Store) GetAdminConversationsForType(ctx context.Context, role string) (
 	var conversations []AdminConversation
 	for rows.Next() {
 		var ac AdminConversation
-		if err := rows.Scan(&ac.UserID, &ac.CustomerName, &ac.Role, &ac.LastMessage, &ac.LastMessageSender, &ac.IsSeen, &ac.ProfilePicture, &ac.Gender, &ac.UpdatedAt); err != nil {
+		if err := rows.Scan(&ac.UserID, &ac.CustomerName, &ac.Role, &ac.LastMessage, &ac.LastMessageSender, &ac.IsSeen, &ac.ProfilePicture, &ac.Gender, &ac.UserPhone, &ac.UpdatedAt); err != nil {
 			return nil, err
 		}
 		conversations = append(conversations, ac)

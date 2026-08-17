@@ -44,7 +44,7 @@ func (h *MessageHandler) SendDriverMessage(w http.ResponseWriter, r *http.Reques
 	}
 
 	content := r.FormValue("content")
-	userPhone := r.FormValue("phone_number")
+	userPhone := r.FormValue("user_phone")
 	fullName := r.FormValue("full_name")
 	profilePicture := r.FormValue("profile_picture")
 	gender := r.FormValue("gender")

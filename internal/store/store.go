@@ -63,6 +63,7 @@ type AdminConversation struct {
 	IsSeen            bool      `json:"is_seen"`
 	ProfilePicture    string    `json:"profile_picture"`
 	Gender            string    `json:"gender"`
+	UserPhone         string    `json:"user_phone,omitempty"`
 	UpdatedAt         time.Time `json:"updated_at"`
 }
 
