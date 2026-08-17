@@ -1,0 +1,150 @@
+package store
+
+import (
+	"context"
+	"fmt"
+)
+
+// GetAdminConversations fetches all active users (customers/drivers) with the latest message details for admins.
+func (s *Store) GetAdminConversations(ctx context.Context) ([]AdminConversation, error) {
+	const query = `
+		WITH latest_customer_msgs AS (
+			SELECT DISTINCT ON (user_id)
+				user_id,
+				'CUSTOMER' AS role,
+				content AS last_message,
+				sended_by AS last_message_sender,
+				seen AS is_seen,
+				created_at AS updated_at,
+				COALESCE(
+					(SELECT full_name FROM customer_messages WHERE user_id = cm.user_id AND full_name IS NOT NULL AND full_name <> '' ORDER BY created_at DESC LIMIT 1),
+					'Customer'
+				) AS full_name,
+				(SELECT profile_picture FROM customer_messages WHERE user_id = cm.user_id AND profile_picture IS NOT NULL AND profile_picture <> '' ORDER BY created_at DESC LIMIT 1) AS profile_picture,
+				(SELECT gender FROM customer_messages WHERE user_id = cm.user_id AND gender IS NOT NULL AND gender <> '' ORDER BY created_at DESC LIMIT 1) AS gender
+			FROM customer_messages cm
+			ORDER BY user_id, created_at DESC
+		),
+		latest_driver_msgs AS (
+			SELECT DISTINCT ON (user_id)
+				user_id,
+				'DRIVER' AS role,
+				content AS last_message,
+				sended_by AS last_message_sender,
+				seen AS is_seen,
+				created_at AS updated_at,
+				COALESCE(
+					(SELECT full_name FROM driver_messages WHERE user_id = dm.user_id AND full_name IS NOT NULL AND full_name <> '' ORDER BY created_at DESC LIMIT 1),
+					'Driver'
+				) AS full_name,
+				(SELECT profile_picture FROM driver_messages WHERE user_id = dm.user_id AND profile_picture IS NOT NULL AND profile_picture <> '' ORDER BY created_at DESC LIMIT 1) AS profile_picture,
+				(SELECT gender FROM driver_messages WHERE user_id = dm.user_id AND gender IS NOT NULL AND gender <> '' ORDER BY created_at DESC LIMIT 1) AS gender
+			FROM driver_messages dm
+			ORDER BY user_id, created_at DESC
+		),
+		all_conversations AS (
+			SELECT user_id, role, last_message, last_message_sender, is_seen, full_name, profile_picture, gender, updated_at FROM latest_customer_msgs
+			UNION ALL
+			SELECT user_id, role, last_message, last_message_sender, is_seen, full_name, profile_picture, gender, updated_at FROM latest_driver_msgs
+		)
+		SELECT 
+			user_id,
+			full_name AS customer_name,
+			role,
+			last_message,
+			last_message_sender,
+			is_seen,
+			COALESCE(profile_picture, '') AS profile_picture,
+			COALESCE(gender, 'Male') AS gender,
+			updated_at
+		FROM all_conversations
+		ORDER BY updated_at DESC`
+
+	rows, err := s.db.Query(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var conversations []AdminConversation
+	for rows.Next() {
+		var ac AdminConversation
+		if err := rows.Scan(&ac.UserID, &ac.CustomerName, &ac.Role, &ac.LastMessage, &ac.LastMessageSender, &ac.IsSeen, &ac.ProfilePicture, &ac.Gender, &ac.UpdatedAt); err != nil {
+			return nil, err
+		}
+		conversations = append(conversations, ac)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return conversations, nil
+}
+
+// GetAdminConversationsForType fetches active conversations filtered by user role (CUSTOMER or DRIVER).
+func (s *Store) GetAdminConversationsForType(ctx context.Context, role string) ([]AdminConversation, error) {
+	var table string
+	var defaultName string
+	if role == "CUSTOMER" {
+		table = "customer_messages"
+		defaultName = "Customer"
+	} else if role == "DRIVER" {
+		table = "driver_messages"
+		defaultName = "Driver"
+	} else {
+		return nil, fmt.Errorf("invalid role: %s", role)
+	}
+
+	query := fmt.Sprintf(`
+		WITH latest_msgs AS (
+			SELECT DISTINCT ON (user_id)
+				user_id,
+				'%s' AS role,
+				content AS last_message,
+				sended_by AS last_message_sender,
+				seen AS is_seen,
+				created_at AS updated_at,
+				COALESCE(
+					(SELECT full_name FROM %s WHERE user_id = m.user_id AND full_name IS NOT NULL AND full_name <> '' ORDER BY created_at DESC LIMIT 1),
+					'%s'
+				) AS full_name,
+				(SELECT profile_picture FROM %s WHERE user_id = m.user_id AND profile_picture IS NOT NULL AND profile_picture <> '' ORDER BY created_at DESC LIMIT 1) AS profile_picture,
+				(SELECT gender FROM %s WHERE user_id = m.user_id AND gender IS NOT NULL AND gender <> '' ORDER BY created_at DESC LIMIT 1) AS gender
+			FROM %s m
+			ORDER BY user_id, created_at DESC
+		)
+		SELECT 
+			user_id,
+			full_name AS customer_name,
+			role,
+			last_message,
+			last_message_sender,
+			is_seen,
+			COALESCE(profile_picture, '') AS profile_picture,
+			COALESCE(gender, 'Male') AS gender,
+			updated_at
+		FROM latest_msgs
+		ORDER BY updated_at DESC`, role, table, defaultName, table, table, table)
+
+	rows, err := s.db.Query(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var conversations []AdminConversation
+	for rows.Next() {
+		var ac AdminConversation
+		if err := rows.Scan(&ac.UserID, &ac.CustomerName, &ac.Role, &ac.LastMessage, &ac.LastMessageSender, &ac.IsSeen, &ac.ProfilePicture, &ac.Gender, &ac.UpdatedAt); err != nil {
+			return nil, err
+		}
+		conversations = append(conversations, ac)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return conversations, nil
+}

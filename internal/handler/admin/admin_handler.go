@@ -1,4 +1,4 @@
-package handler
+package admin
 
 import (
 	"log"
@@ -96,4 +96,3 @@ func (h *AdminHandler) GetCustomerConversations(w http.ResponseWriter, r *http.R
 
 	response.RawJSON(w, http.StatusOK, conversations)
 }
-

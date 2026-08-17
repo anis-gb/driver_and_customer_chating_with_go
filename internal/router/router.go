@@ -7,6 +7,9 @@ import (
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/yourusername/go-starter/internal/handler"
+	"github.com/yourusername/go-starter/internal/handler/admin"
+	"github.com/yourusername/go-starter/internal/handler/customer"
+	"github.com/yourusername/go-starter/internal/handler/driver"
 	"github.com/yourusername/go-starter/internal/middleware"
 	"github.com/yourusername/go-starter/internal/socket"
 	"github.com/yourusername/go-starter/internal/store"
@@ -41,9 +44,14 @@ func New(db *pgxpool.Pool) http.Handler {
 
 	healthHandler := handler.NewHealthHandler(db)
 	wsHandler := handler.NewWebSocketHandler(s, hub)
-	historyHandler := handler.NewHistoryHandler(s)
-	adminHandler := handler.NewAdminHandler(s)
-	messageHandler := handler.NewMessageHandler(s, hub)
+	
+	customerHistory := customer.NewHistoryHandler(s)
+	customerMessage := customer.NewMessageHandler(s, hub)
+	
+	driverHistory := driver.NewHistoryHandler(s)
+	driverMessage := driver.NewMessageHandler(s, hub)
+	
+	adminHandler := admin.NewAdminHandler(s)
 
 	// Health Check Endpoint (checks service and PostgreSQL connection)
 	r.Get("/health", healthHandler.Health)
@@ -54,15 +62,15 @@ func New(db *pgxpool.Pool) http.Handler {
 
 	// REST APIs for Real-time Chat System
 	// Customer Chat Endpoint
-	r.Get("/api/customer/messages", historyHandler.GetCustomerHistory)
-	r.Post("/api/customer/messages", messageHandler.SendCustomerMessage)
-	r.Post("/api/customer/messages/seen", messageHandler.MarkCustomerMessagesSeen)
+	r.Get("/api/customer/messages", customerHistory.GetCustomerHistory)
+	r.Post("/api/customer/messages", customerMessage.SendCustomerMessage)
+	r.Post("/api/customer/messages/seen", customerMessage.MarkCustomerMessagesSeen)
 
 	// Driver Chat Endpoint
-	r.Get("/api/driver/messages", historyHandler.GetDriverHistory)
-	r.Post("/api/driver/messages", messageHandler.SendDriverMessage)
-	r.Post("/api/driver/messages/seen", messageHandler.MarkDriverMessagesSeen)
-	r.Patch("/api/driver/messages/{id}", messageHandler.EditDriverMessage)
+	r.Get("/api/driver/messages", driverHistory.GetDriverHistory)
+	r.Post("/api/driver/messages", driverMessage.SendDriverMessage)
+	r.Post("/api/driver/messages/seen", driverMessage.MarkDriverMessagesSeen)
+	r.Patch("/api/driver/messages/{id}", driverMessage.EditDriverMessage)
 
 
 	r.Get("/api/admin/conversations", adminHandler.GetConversations)

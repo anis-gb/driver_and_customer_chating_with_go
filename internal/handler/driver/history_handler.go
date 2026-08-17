@@ -1,4 +1,4 @@
-package handler
+package driver
 
 import (
 	"log"
@@ -20,15 +20,7 @@ func NewHistoryHandler(s *store.Store) *HistoryHandler {
 	return &HistoryHandler{store: s}
 }
 
-func (h *HistoryHandler) GetCustomerHistory(w http.ResponseWriter, r *http.Request) {
-	h.getHistoryForType(w, r, "CUSTOMER")
-}
-
 func (h *HistoryHandler) GetDriverHistory(w http.ResponseWriter, r *http.Request) {
-	h.getHistoryForType(w, r, "DRIVER")
-}
-
-func (h *HistoryHandler) getHistoryForType(w http.ResponseWriter, r *http.Request, targetUserType string) {
 	userID := r.URL.Query().Get("user_id")
 	if userID == "" {
 		response.JSON(w, http.StatusBadRequest, "user_id query parameter is required", nil)
@@ -37,10 +29,10 @@ func (h *HistoryHandler) getHistoryForType(w http.ResponseWriter, r *http.Reques
 
 	userType := r.URL.Query().Get("user_type")
 	if userType == "" {
-		userType = targetUserType
+		userType = "DRIVER"
 	}
 
-	// 2. Determine target user_id for the chat history
+	// Determine target user_id for the chat history
 	var targetUserID string
 	if userType == "ADMIN" {
 		targetUserID = r.URL.Query().Get("target_user_id")
@@ -52,10 +44,10 @@ func (h *HistoryHandler) getHistoryForType(w http.ResponseWriter, r *http.Reques
 		// If non-admin, they can only fetch their own chat history
 		targetUserID = userID
 		// Enforce alignment of sender type with endpoint channel
-		userType = targetUserType
+		userType = "DRIVER"
 	}
 
-	// 3. Parse optional cursor (RFC3339 timestamp)
+	// Parse optional cursor (RFC3339 timestamp)
 	var cursorTime time.Time
 	cursorStr := r.URL.Query().Get("cursor")
 	if cursorStr == "" {
@@ -70,7 +62,7 @@ func (h *HistoryHandler) getHistoryForType(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
-	// 4. Parse optional limit (default 50)
+	// Parse optional limit (default 50)
 	limit := 50
 	limitStr := r.URL.Query().Get("limit")
 	if limitStr != "" {
@@ -79,8 +71,8 @@ func (h *HistoryHandler) getHistoryForType(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
-	// 5. Fetch older messages from store
-	rawMessages, err := h.store.GetChatHistory(r.Context(), targetUserID, targetUserType, cursorTime, limit)
+	// Fetch older messages from store
+	rawMessages, err := h.store.GetDriverHistory(r.Context(), targetUserID, cursorTime, limit)
 	if err != nil {
 		log.Printf("Failed to fetch chat history for user %s: %v", targetUserID, err)
 		response.JSON(w, http.StatusInternalServerError, "failed to fetch messages", nil)
@@ -91,7 +83,7 @@ func (h *HistoryHandler) getHistoryForType(w http.ResponseWriter, r *http.Reques
 		rawMessages = []store.OutgoingMessage{}
 	}
 
-	// 6. Apply Admin Anonymization Rule for Customer/Driver requests
+	// Apply Admin Anonymization Rule for Driver requests
 	if userType != "ADMIN" {
 		for i, m := range rawMessages {
 			if m.SendedBy == "ADMIN" {
@@ -101,7 +93,7 @@ func (h *HistoryHandler) getHistoryForType(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
-	// 7. Calculate pagination metadata (has_more, next_cursor)
+	// Calculate pagination metadata (has_more, next_cursor)
 	hasMore := false
 	nextCursor := ""
 	messagesList := rawMessages
@@ -113,11 +105,10 @@ func (h *HistoryHandler) getHistoryForType(w http.ResponseWriter, r *http.Reques
 		messagesList = rawMessages[:limit]
 	}
 
-	// 8. Return paginated response payload
+	// Return paginated response payload
 	response.RawJSON(w, http.StatusOK, map[string]any{
 		"messages":    messagesList,
 		"next_cursor": nextCursor,
 		"has_more":    hasMore,
 	})
 }
-
