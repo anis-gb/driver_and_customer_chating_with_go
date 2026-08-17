@@ -7,6 +7,7 @@ import (
 
 	"github.com/yourusername/go-starter/internal/socket"
 	"github.com/yourusername/go-starter/internal/store"
+	"github.com/yourusername/go-starter/internal/utils"
 	"github.com/yourusername/go-starter/pkg/response"
 )
 
@@ -45,8 +46,31 @@ func (h *MessageHandler) SendDriverMessage(w http.ResponseWriter, r *http.Reques
 	}
 
 	content := r.FormValue("content")
-	if content == "" {
-		response.JSON(w, http.StatusBadRequest, "content cannot be empty", nil)
+	userPhone := r.FormValue("phone_number")
+	fullName := r.FormValue("full_name")
+	profilePicture := r.FormValue("profile_picture")
+	gender := r.FormValue("gender")
+
+	voicePath, err := utils.SaveUploadedFile(r, "voice_messages", "./uploads")
+	if err != nil {
+		response.JSON(w, http.StatusInternalServerError, "failed to save voice file", nil)
+		return
+	}
+
+	photoPath, err := utils.SaveUploadedFile(r, "photo", "./uploads")
+	if err != nil {
+		response.JSON(w, http.StatusInternalServerError, "failed to save photo", nil)
+		return
+	}
+
+	filePath, err := utils.SaveUploadedFile(r, "file", "./uploads")
+	if err != nil {
+		response.JSON(w, http.StatusInternalServerError, "failed to save file", nil)
+		return
+	}
+
+	if content == "" && voicePath == "" && photoPath == "" && filePath == "" {
+		response.JSON(w, http.StatusBadRequest, "message cannot be completely empty", nil)
 		return
 	}
 
@@ -69,7 +93,7 @@ func (h *MessageHandler) SendDriverMessage(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Persist the message
-	msg, err := h.store.InsertDriverMessage(r.Context(), targetUserID, adminID, authUserType, content)
+	msg, err := h.store.InsertDriverMessage(r.Context(), targetUserID, adminID, authUserType, content, voicePath, photoPath, filePath, userPhone, fullName, profilePicture, gender)
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, "failed to save message", nil)
 		return
@@ -93,6 +117,13 @@ func (h *MessageHandler) SendDriverMessage(w http.ResponseWriter, r *http.Reques
 		SenderName: senderName,
 		Content:    msg.Content,
 		Seen:       msg.Seen,
+		VoiceMessages: msg.VoiceMessages,
+		Photo:         msg.Photo,
+		File:          msg.File,
+		UserPhone:     msg.UserPhone,
+		FullName:      msg.FullName,
+		ProfilePicture: msg.ProfilePicture,
+		Gender:        msg.Gender,
 		CreatedAt:  msg.CreatedAt,
 	}
 

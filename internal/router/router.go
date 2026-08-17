@@ -62,6 +62,9 @@ func New(db *pgxpool.Pool) http.Handler {
 	r.Get("/health", healthHandler.Health)
 	r.Get("/api/health", healthHandler.Health)
 
+	// Serve static files from the uploads directory
+	r.Handle("/uploads/*", http.StripPrefix("/uploads/", http.FileServer(http.Dir("./uploads"))))
+
 	// WebSocket Endpoint
 	r.Get("/ws", wsHandler.ServeWS)
 

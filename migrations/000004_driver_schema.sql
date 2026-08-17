@@ -12,6 +12,7 @@ CREATE TABLE driver_messages (
     voice_messages TEXT,
     photo TEXT,
     file TEXT,
+    user_phone VARCHAR(50),
     full_name VARCHAR(255),
     profile_picture TEXT,
     gender VARCHAR(10),
