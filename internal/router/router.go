@@ -16,6 +16,22 @@ import (
 	"github.com/yourusername/go-starter/internal/store"
 )
 
+// MessageHandlers holds both history and message handlers for a user type.
+type MessageHandlers struct {
+	History interface {
+		GetCustomerHistory(w http.ResponseWriter, r *http.Request)
+		GetDriverHistory(w http.ResponseWriter, r *http.Request)
+	}
+	Message interface {
+		SendCustomerMessage(w http.ResponseWriter, r *http.Request)
+		SendDriverMessage(w http.ResponseWriter, r *http.Request)
+		MarkCustomerMessagesSeen(w http.ResponseWriter, r *http.Request)
+		MarkDriverMessagesSeen(w http.ResponseWriter, r *http.Request)
+		EditCustomerMessage(w http.ResponseWriter, r *http.Request)
+		EditDriverMessage(w http.ResponseWriter, r *http.Request)
+	}
+}
+
 // New builds and returns the fully configured HTTP router.
 func New(db *pgxpool.Pool) http.Handler {
 	r := chi.NewRouter()
@@ -50,12 +66,11 @@ func New(db *pgxpool.Pool) http.Handler {
 	healthHandler := handler.NewHealthHandler(db)
 	wsHandler := handler.NewWebSocketHandler(s, hub)
 
+	// Initialize handlers
 	customerHistory := customer.NewHistoryHandler(s)
 	customerMessage := customer.NewMessageHandler(s, hub)
-
 	driverHistory := driver.NewHistoryHandler(s)
 	driverMessage := driver.NewMessageHandler(s, hub)
-
 	adminHandler := admin.NewAdminHandler(s)
 
 	// Health Check Endpoint (checks service and PostgreSQL connection)
@@ -69,25 +84,35 @@ func New(db *pgxpool.Pool) http.Handler {
 	r.Get("/ws", wsHandler.ServeWS)
 
 	// REST APIs for Real-time Chat System
-	// Customer Chat Endpoint
-	r.Get("/api/customer/messages", customerHistory.GetCustomerHistory)
-	r.Post("/api/customer/messages", customerMessage.SendCustomerMessage)
-	r.Post("/api/customer/messages/seen", customerMessage.MarkCustomerMessagesSeen)
-	r.Patch("/api/customer/messages/{id}", customerMessage.EditCustomerMessage)
+	// Register message routes for Customer
+	registerMessageRoutes(r, "customer", 
+		customerHistory.GetCustomerHistory, 
+		customerMessage.SendCustomerMessage, 
+		customerMessage.MarkCustomerMessagesSeen, 
+		customerMessage.EditCustomerMessage
+	)
 
-	// Driver Chat Endpoint
-	r.Get("/api/driver/messages", driverHistory.GetDriverHistory)
-	r.Post("/api/driver/messages", driverMessage.SendDriverMessage)
-	r.Post("/api/driver/messages/seen", driverMessage.MarkDriverMessagesSeen)
-	r.Patch("/api/driver/messages/{id}", driverMessage.EditDriverMessage)
+	// Register message routes for Driver
+	registerMessageRoutes(r, "driver",
+		driverHistory.GetDriverHistory, 
+		driverMessage.SendDriverMessage, 
+		driverMessage.MarkDriverMessagesSeen, 
+		driverMessage.EditDriverMessage
+	)
 
+	// Admin Endpoints
 	r.Get("/api/admin/conversations", adminHandler.GetConversations)
 	r.Get("/api/admin/conversations/customers", adminHandler.GetCustomerConversations)
 	r.Get("/api/admin/conversations/drivers", adminHandler.GetDriverConversations)
 
-	// Serve uploaded files under /uploads/
-	fs := http.StripPrefix("/uploads/", http.FileServer(http.Dir("uploads")))
-	r.Handle("/uploads/*", fs)
-
 	return r
+}
+
+// registerMessageRoutes registers the message routes for a given user type (customer/driver).
+func registerMessageRoutes(r *chi.Mux, userType string, getHistory http.HandlerFunc, sendMessage http.HandlerFunc, markSeen http.HandlerFunc, editMessage http.HandlerFunc) {
+	basePath := "/api/" + userType + "/messages"
+	r.Get(basePath, getHistory)
+	r.Post(basePath, sendMessage)
+	r.Post(basePath+"/seen", markSeen)
+	r.Patch(basePath+"/{id}", editMessage)
 }
