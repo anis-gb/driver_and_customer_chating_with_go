@@ -27,7 +27,7 @@ func main() {
 	log.Println("connected to PostgreSQL")
 
 	// Build the HTTP router with all routes/handlers wired up
-	r := router.New(db)
+	r := router.New(db, cfg.HMACSecret)
 
 	srv := &http.Server{
 		Addr:         ":" + cfg.Port,

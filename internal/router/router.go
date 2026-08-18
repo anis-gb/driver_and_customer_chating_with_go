@@ -16,7 +16,7 @@ import (
 )
 
 // New builds and returns the fully configured HTTP router.
-func New(db *pgxpool.Pool) http.Handler {
+func New(db *pgxpool.Pool, hmacSecret string) http.Handler {
 	r := chi.NewRouter()
 
 	// Global middleware
@@ -28,7 +28,7 @@ func New(db *pgxpool.Pool) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Access-Control-Allow-Origin", "*")
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Timestamp, X-Nonce, X-Signature")
 			if r.Method == "OPTIONS" {
 				w.WriteHeader(http.StatusOK)
 				return
@@ -63,22 +63,27 @@ func New(db *pgxpool.Pool) http.Handler {
 	// WebSocket Endpoint
 	r.Get("/ws", wsHandler.ServeWS)
 
-	// REST APIs for Real-time Chat System
-	// Customer Chat Endpoint
+	// Customer Chat Endpoints (no HMAC — public facing)
 	r.Get("/api/customer/messages", customerHistory.GetCustomerHistory)
 	r.Post("/api/customer/messages", customerMessage.SendCustomerMessage)
 	r.Post("/api/customer/messages/seen", customerMessage.MarkCustomerMessagesSeen)
 
-	// Driver Chat Endpoint
-	r.Get("/api/driver/messages", driverHistory.GetDriverHistory)
-	r.Post("/api/driver/messages", driverMessage.SendDriverMessage)
-	r.Post("/api/driver/messages/seen", driverMessage.MarkDriverMessagesSeen)
-	r.Patch("/api/driver/messages/{id}", driverMessage.EditDriverMessage)
+	// Driver Chat Endpoints — protected by HMAC
+	r.Group(func(r chi.Router) {
+		r.Use(middleware.HMACAuth(hmacSecret))
+		r.Get("/api/driver/messages", driverHistory.GetDriverHistory)
+		r.Post("/api/driver/messages", driverMessage.SendDriverMessage)
+		r.Post("/api/driver/messages/seen", driverMessage.MarkDriverMessagesSeen)
+		r.Patch("/api/driver/messages/{id}", driverMessage.EditDriverMessage)
+	})
 
-
-	r.Get("/api/admin/conversations", adminHandler.GetConversations)
-	r.Get("/api/admin/conversations/customers", adminHandler.GetCustomerConversations)
-	r.Get("/api/admin/conversations/drivers", adminHandler.GetDriverConversations)
+	// Admin Endpoints — protected by HMAC
+	r.Group(func(r chi.Router) {
+		r.Use(middleware.HMACAuth(hmacSecret))
+		r.Get("/api/admin/conversations", adminHandler.GetConversations)
+		r.Get("/api/admin/conversations/customers", adminHandler.GetCustomerConversations)
+		r.Get("/api/admin/conversations/drivers", adminHandler.GetDriverConversations)
+	})
 
 	return r
 }
