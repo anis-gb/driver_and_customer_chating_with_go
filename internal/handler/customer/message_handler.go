@@ -5,6 +5,7 @@ import (
 
 	"github.com/yourusername/go-starter/internal/socket"
 	"github.com/yourusername/go-starter/internal/store"
+	"github.com/yourusername/go-starter/internal/utils"
 	"github.com/yourusername/go-starter/pkg/response"
 )
 
@@ -41,7 +42,7 @@ func (h *MessageHandler) SendCustomerMessage(w http.ResponseWriter, r *http.Requ
 		authUserType = "CUSTOMER"
 	}
 
-	content := r.FormValue("content")
+	content := utils.CleanText(r.FormValue("content"))
 	if content == "" {
 		response.JSON(w, http.StatusBadRequest, "content cannot be empty", nil)
 		return
