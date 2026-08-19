@@ -22,6 +22,8 @@ func New(db *pgxpool.Pool, hmacSecret string) http.Handler {
 	// Global middleware
 	r.Use(chimiddleware.Recoverer)
 	r.Use(middleware.Logger)
+	r.Use(middleware.SecurityHeaders)
+	r.Use(middleware.BodySizeLimit(10 << 20)) // 10MB max request body limit
 
 	// CORS Middleware
 	r.Use(func(next http.Handler) http.Handler {
