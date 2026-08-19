@@ -46,13 +46,13 @@ func New(db *pgxpool.Pool, hmacSecret string) http.Handler {
 
 	healthHandler := handler.NewHealthHandler(db)
 	wsHandler := handler.NewWebSocketHandler(s, hub)
-	
+
 	customerHistory := customer.NewHistoryHandler(s)
 	customerMessage := customer.NewMessageHandler(s, hub)
-	
+
 	driverHistory := driver.NewHistoryHandler(s)
 	driverMessage := driver.NewMessageHandler(s, hub)
-	
+
 	adminHandler := admin.NewAdminHandler(s)
 
 	// Health Check Endpoint (checks service and PostgreSQL connection)
@@ -69,6 +69,7 @@ func New(db *pgxpool.Pool, hmacSecret string) http.Handler {
 	r.Get("/api/customer/messages", customerHistory.GetCustomerHistory)
 	r.Post("/api/customer/messages", customerMessage.SendCustomerMessage)
 	r.Post("/api/customer/messages/seen", customerMessage.MarkCustomerMessagesSeen)
+	r.Patch("/api/customer/messages/{id}", customerMessage.EditCustomerMessage)
 
 	// Driver Chat Endpoints — protected by HMAC
 	r.Group(func(r chi.Router) {

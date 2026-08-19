@@ -10,105 +10,214 @@ import (
 	"github.com/yourusername/go-starter/pkg/response"
 )
 
-// HistoryHandler handles fetching message history.
+// HistoryHandler handles fetching customer message history.
 type HistoryHandler struct {
 	store *store.Store
 }
 
 // NewHistoryHandler creates a new HistoryHandler.
 func NewHistoryHandler(s *store.Store) *HistoryHandler {
-	return &HistoryHandler{store: s}
+	return &HistoryHandler{
+		store: s,
+	}
 }
 
-func (h *HistoryHandler) GetCustomerHistory(w http.ResponseWriter, r *http.Request) {
+// GetCustomerHistory returns paginated customer chat history.
+func (h *HistoryHandler) GetCustomerHistory(
+	w http.ResponseWriter,
+	r *http.Request,
+) {
+	// -------------------------------------------------
+	// User ID
+	// -------------------------------------------------
 	userID := r.URL.Query().Get("user_id")
+
 	if userID == "" {
-		response.JSON(w, http.StatusBadRequest, "user_id query parameter is required", nil)
+		response.JSON(
+			w,
+			http.StatusBadRequest,
+			"user_id query parameter is required",
+			nil,
+		)
 		return
 	}
 
+	// -------------------------------------------------
+	// User type
+	// -------------------------------------------------
 	userType := r.URL.Query().Get("user_type")
+
 	if userType == "" {
 		userType = "CUSTOMER"
 	}
 
-	// Determine target user_id for the chat history
-	var targetUserID string
-	if userType == "ADMIN" {
-		targetUserID = r.URL.Query().Get("target_user_id")
-		if targetUserID == "" {
-			response.JSON(w, http.StatusBadRequest, "target_user_id query parameter is required for admins", nil)
-			return
-		}
-	} else {
-		// If non-admin, they can only fetch their own chat history
-		targetUserID = userID
-		// Enforce alignment of sender type with endpoint channel
+	// Normalize user type.
+	if userType != "ADMIN" {
 		userType = "CUSTOMER"
 	}
 
-	// Parse optional cursor (RFC3339 timestamp)
+	// -------------------------------------------------
+	// Determine target user ID
+	// -------------------------------------------------
+	var targetUserID string
+
+	if userType == "ADMIN" {
+
+		// Admin can view a specific customer's conversation.
+		targetUserID = r.URL.Query().Get("target_user_id")
+
+		if targetUserID == "" {
+			response.JSON(
+				w,
+				http.StatusBadRequest,
+				"target_user_id query parameter is required for admins",
+				nil,
+			)
+			return
+		}
+
+	} else {
+
+		// Customer can only view their own conversation.
+		targetUserID = userID
+	}
+
+	// -------------------------------------------------
+	// Cursor
+	// -------------------------------------------------
 	var cursorTime time.Time
+
 	cursorStr := r.URL.Query().Get("cursor")
+
 	if cursorStr == "" {
 		cursorStr = r.URL.Query().Get("before")
 	}
+
 	if cursorStr != "" {
-		var parseErr error
-		cursorTime, parseErr = time.Parse(time.RFC3339, cursorStr)
-		if parseErr != nil {
-			response.JSON(w, http.StatusBadRequest, "invalid cursor format (must be RFC3339)", nil)
+
+		parsedTime, err := time.Parse(
+			time.RFC3339,
+			cursorStr,
+		)
+
+		if err != nil {
+			response.JSON(
+				w,
+				http.StatusBadRequest,
+				"invalid cursor format (must be RFC3339)",
+				nil,
+			)
 			return
 		}
+
+		cursorTime = parsedTime
 	}
 
-	// Parse optional limit (default 50)
+	// -------------------------------------------------
+	// Limit
+	// -------------------------------------------------
 	limit := 50
+
 	limitStr := r.URL.Query().Get("limit")
+
 	if limitStr != "" {
-		if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 {
-			limit = parsedLimit
+
+		parsedLimit, err := strconv.Atoi(limitStr)
+
+		if err != nil || parsedLimit <= 0 {
+			response.JSON(
+				w,
+				http.StatusBadRequest,
+				"limit must be a positive integer",
+				nil,
+			)
+			return
 		}
+
+		// Maximum 100 messages per request.
+		if parsedLimit > 100 {
+			parsedLimit = 100
+		}
+
+		limit = parsedLimit
 	}
 
-	// Fetch older messages from store
-	rawMessages, err := h.store.GetCustomerHistory(r.Context(), targetUserID, cursorTime, limit)
+	// -------------------------------------------------
+	// Get customer messages
+	// -------------------------------------------------
+	rawMessages, err := h.store.GetCustomerHistory(
+		r.Context(),
+		targetUserID,
+		cursorTime,
+		limit,
+	)
+
 	if err != nil {
-		log.Printf("Failed to fetch chat history for user %s: %v", targetUserID, err)
-		response.JSON(w, http.StatusInternalServerError, "failed to fetch messages", nil)
+		log.Printf(
+			"Failed to fetch customer chat history for user %s: %v",
+			targetUserID,
+			err,
+		)
+
+		response.JSON(
+			w,
+			http.StatusInternalServerError,
+			"failed to fetch messages",
+			nil,
+		)
 		return
 	}
 
+	// Prevent null response.
 	if rawMessages == nil {
 		rawMessages = []store.OutgoingMessage{}
 	}
 
-	// Apply Admin Anonymization Rule for Customer requests
+	// -------------------------------------------------
+	// Hide admin ID from customers
+	// -------------------------------------------------
 	if userType != "ADMIN" {
-		for i, m := range rawMessages {
-			if m.SendedBy == "ADMIN" {
+
+		for i := range rawMessages {
+
+			if rawMessages[i].SendedBy == "ADMIN" {
 				rawMessages[i].AdminID = nil
 				rawMessages[i].SenderName = "Support Admin"
 			}
 		}
 	}
 
-	// Calculate pagination metadata (has_more, next_cursor)
+	// -------------------------------------------------
+	// Pagination
+	// -------------------------------------------------
 	hasMore := false
 	nextCursor := ""
+
 	messagesList := rawMessages
 
+	// Store returns limit + 1 records.
 	if len(rawMessages) > limit {
+
 		hasMore = true
-		// The next_cursor is the timestamp of the last message in the requested page
-		nextCursor = rawMessages[limit-1].CreatedAt.Format(time.RFC3339)
+
+		// Last message of current page.
+		nextCursor = rawMessages[limit-1].CreatedAt.Format(
+			time.RFC3339,
+		)
+
 		messagesList = rawMessages[:limit]
 	}
 
-	// Return paginated response payload
-	response.RawJSON(w, http.StatusOK, map[string]any{
-		"messages":    messagesList,
-		"next_cursor": nextCursor,
-		"has_more":    hasMore,
-	})
+	// -------------------------------------------------
+	// Response
+	// -------------------------------------------------
+	response.RawJSON(
+		w,
+		http.StatusOK,
+		map[string]any{
+			"messages":    messagesList,
+			"next_cursor": nextCursor,
+			"has_more":    hasMore,
+		},
+	)
 }

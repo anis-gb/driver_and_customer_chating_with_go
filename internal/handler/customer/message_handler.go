@@ -3,6 +3,8 @@ package customer
 import (
 	"net/http"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/yourusername/go-starter/internal/socket"
 	"github.com/yourusername/go-starter/internal/store"
 	"github.com/yourusername/go-starter/internal/utils"
@@ -37,7 +39,8 @@ func (h *MessageHandler) SendCustomerMessage(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	authUserType := r.FormValue("user_type")
+	var authUserType string
+	authUserType = r.FormValue("user_type")
 	if authUserType == "" {
 		authUserType = "CUSTOMER"
 	}
@@ -67,7 +70,7 @@ func (h *MessageHandler) SendCustomerMessage(w http.ResponseWriter, r *http.Requ
 	}
 
 	// Persist the message
-	msg, err := h.store.InsertCustomerMessage(r.Context(), targetUserID, adminID, authUserType, content)
+	msg, err := h.store.InsertCustomerMessage(r.Context(), targetUserID, adminID, authUserType, content, voicePath, photoPath, filePath, userPhone, fullName, profilePicture, gender)
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, "failed to save message", nil)
 		return
@@ -83,17 +86,24 @@ func (h *MessageHandler) SendCustomerMessage(w http.ResponseWriter, r *http.Requ
 
 	// Broadcast via WebSocket
 	outgoingMsg := store.OutgoingMessage{
-		Type:       "NEW_MESSAGE",
-		ID:         msg.ID,
-		UserID:     msg.UserID,
-		AdminID:    msg.AdminID,
-		SendedBy:   msg.SendedBy,
-		SenderName: senderName,
-		Content:    msg.Content,
-		Seen:       msg.Seen,
-		CreatedAt:  msg.CreatedAt,
+		Type:           "NEW_MESSAGE",
+		ID:             msg.ID,
+		UserID:         msg.UserID,
+		AdminID:        msg.AdminID,
+		SendedBy:       msg.SendedBy,
+		SenderName:     senderName,
+		Content:        msg.Content,
+		Seen:           msg.Seen,
+		VoiceMessages:  msg.VoiceMessages,
+		Photo:          msg.Photo,
+		File:           msg.File,
+		UserPhone:      msg.UserPhone,
+		FullName:       msg.FullName,
+		ProfilePicture: msg.ProfilePicture,
+		Gender:         msg.Gender,
+		CreatedAt:      msg.CreatedAt,
 	}
-	
+
 	h.hub.BroadcastMessage(outgoingMsg)
 
 	response.JSON(w, http.StatusCreated, "message sent", outgoingMsg)
@@ -113,7 +123,8 @@ func (h *MessageHandler) MarkCustomerMessagesSeen(w http.ResponseWriter, r *http
 		return
 	}
 
-	authUserType := r.FormValue("user_type")
+	var authUserType string
+	authUserType = r.FormValue("user_type")
 	if authUserType == "" {
 		authUserType = "CUSTOMER"
 	}
@@ -146,4 +157,42 @@ func (h *MessageHandler) MarkCustomerMessagesSeen(w http.ResponseWriter, r *http
 	h.hub.BroadcastMessage(readMsg)
 
 	response.JSON(w, http.StatusOK, "messages marked as seen", nil)
+}
+
+func (h *MessageHandler) EditCustomerMessage(w http.ResponseWriter, r *http.Request) {
+	messageID := chi.URLParam(r, "id")
+	if messageID == "" {
+		response.JSON(w, http.StatusBadRequest, "message id is required", nil)
+		return
+	}
+
+	if err := r.ParseMultipartForm(10 << 20); err != nil {
+		if err := r.ParseForm(); err != nil {
+			response.JSON(w, http.StatusBadRequest, "failed to parse form data", nil)
+			return
+		}
+	}
+
+	var authUserType string
+	authUserType = r.FormValue("user_type")
+	if authUserType != "ADMIN" {
+		response.JSON(w, http.StatusForbidden, "only admins can edit messages", nil)
+		return
+	}
+
+	content := utils.CleanText(r.FormValue("content"))
+	if content == "" {
+		response.JSON(w, http.StatusBadRequest, "content cannot be empty", nil)
+		return
+	}
+
+	msg, err := h.store.EditCustomerMessage(r.Context(), messageID, content)
+	if err != nil {
+		response.JSON(w, http.StatusInternalServerError, "failed to edit message or message not found", nil)
+		return
+	}
+
+	h.hub.BroadcastMessage(*msg)
+
+	response.JSON(w, http.StatusOK, "message edited successfully", msg)
 }
