@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -112,4 +113,24 @@ func (s *Store) EditCustomerMessage(ctx context.Context, messageID string, conte
 	}
 	m.Type = "EDIT_MESSAGE"
 	return &m, nil
+}
+
+// DeleteCustomerMessage deletes a message by ID (admin only)
+func (s *Store) DeleteCustomerMessage(ctx context.Context, messageID string) error {
+	query := `
+		DELETE FROM customer_messages 
+		WHERE id = $1 AND sended_by = 'ADMIN'
+	`
+
+	result, err := s.db.Exec(ctx, query, messageID)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected := result.RowsAffected()
+	if rowsAffected == 0 {
+		return fmt.Errorf("message not found or not an admin message")
+	}
+
+	return nil
 }
