@@ -69,6 +69,15 @@ func (h *MessageHandler) SendCustomerMessage(w http.ResponseWriter, r *http.Requ
 		authUserType = "CUSTOMER"
 	}
 
+	// Get optional fields from form data
+	voicePath := r.FormValue("voice_messages") // or handle file upload
+	photoPath := r.FormValue("photo")          // or handle file upload
+	filePath := r.FormValue("file")            // or handle file upload
+	userPhone := r.FormValue("user_phone")
+	fullName := r.FormValue("full_name")
+	profilePicture := r.FormValue("profile_picture")
+	gender := r.FormValue("gender")
+
 	// Persist the message
 	msg, err := h.store.InsertCustomerMessage(r.Context(), targetUserID, adminID, authUserType, content, voicePath, photoPath, filePath, userPhone, fullName, profilePicture, gender)
 	if err != nil {
