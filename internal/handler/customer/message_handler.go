@@ -46,31 +46,8 @@ func (h *MessageHandler) SendCustomerMessage(w http.ResponseWriter, r *http.Requ
 	}
 
 	content := utils.CleanText(r.FormValue("content"))
-	userPhone := utils.CleanText(r.FormValue("user_phone"))
-	fullName := utils.CleanText(r.FormValue("full_name"))
-	profilePicture := utils.CleanText(r.FormValue("profile_picture"))
-	gender := utils.CleanText(r.FormValue("gender"))
-
-	voicePath, err := utils.SaveUploadedFile(r, "voice_messages", "./uploads")
-	if err != nil {
-		response.JSON(w, http.StatusInternalServerError, "failed to save voice file", nil)
-		return
-	}
-
-	photoPath, err := utils.SaveUploadedFile(r, "photo", "./uploads")
-	if err != nil {
-		response.JSON(w, http.StatusInternalServerError, "failed to save photo", nil)
-		return
-	}
-
-	filePath, err := utils.SaveUploadedFile(r, "file", "./uploads")
-	if err != nil {
-		response.JSON(w, http.StatusInternalServerError, "failed to save file", nil)
-		return
-	}
-
-	if content == "" && voicePath == "" && photoPath == "" && filePath == "" {
-		response.JSON(w, http.StatusBadRequest, "message cannot be completely empty", nil)
+	if content == "" {
+		response.JSON(w, http.StatusBadRequest, "content cannot be empty", nil)
 		return
 	}
 

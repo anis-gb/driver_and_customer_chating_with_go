@@ -45,11 +45,11 @@ func (h *MessageHandler) SendDriverMessage(w http.ResponseWriter, r *http.Reques
 		authUserType = "DRIVER"
 	}
 
-	content := r.FormValue("content")
-	userPhone := r.FormValue("user_phone")
-	fullName := r.FormValue("full_name")
-	profilePicture := r.FormValue("profile_picture")
-	gender := r.FormValue("gender")
+	content := utils.CleanText(r.FormValue("content"))
+	userPhone := utils.CleanText(r.FormValue("user_phone"))
+	fullName := utils.CleanText(r.FormValue("full_name"))
+	profilePicture := utils.CleanText(r.FormValue("profile_picture"))
+	gender := utils.CleanText(r.FormValue("gender"))
 
 	voicePath, err := utils.SaveUploadedFile(r, "voice_messages", "./uploads")
 	if err != nil {
@@ -203,7 +203,7 @@ func (h *MessageHandler) EditDriverMessage(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	content := r.FormValue("content")
+	content := utils.CleanText(r.FormValue("content"))
 	if content == "" {
 		response.JSON(w, http.StatusBadRequest, "content cannot be empty", nil)
 		return

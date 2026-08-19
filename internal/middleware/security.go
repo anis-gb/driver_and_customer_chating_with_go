@@ -2,72 +2,37 @@ package middleware
 
 import (
 	"net/http"
-	"strconv"
-	"strings"
-
-	"github.com/yourusername/go-starter/pkg/auth"
 )
 
-// SecurityHeaders adds basic hardening headers to responses.
+// SecurityHeaders middleware sets defensive HTTP response headers on all outgoing responses.
 func SecurityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Prevent browsers from MIME-sniffing response content types
 		w.Header().Set("X-Content-Type-Options", "nosniff")
+
+		// Prevent clickjacking by forbidding embedding in frames/iframes
 		w.Header().Set("X-Frame-Options", "DENY")
+
+		// Enable XSS filtering in legacy browsers
 		w.Header().Set("X-XSS-Protection", "1; mode=block")
+
+		// Restrict referrer information sent on links
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+
+		// Content Security Policy for static upload access
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'none'")
+
 		next.ServeHTTP(w, r)
 	})
 }
 
-// BodySizeLimit enforces a maximum request body size.
-func BodySizeLimit(limit int64) func(http.Handler) http.Handler {
+// BodySizeLimit middleware limits the maximum size of incoming HTTP request bodies
+// to prevent Denial of Service (DoS) attacks via memory or disk exhaustion.
+func BodySizeLimit(maxBytes int64) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.ContentLength > limit {
-				http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
-				return
-			}
-			r.Body = http.MaxBytesReader(w, r.Body, limit)
+			r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
 			next.ServeHTTP(w, r)
 		})
 	}
-}
-
-// HMACAuth validates the request signature from headers. It accepts both
-// X-Timestamp/X-Nonce/X-Signature and Authorization: HMAC <signature>.
-func HMACAuth(secret string) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			timestamp := strings.TrimSpace(r.Header.Get("X-Timestamp"))
-			nonce := strings.TrimSpace(r.Header.Get("X-Nonce"))
-			signature := strings.TrimSpace(r.Header.Get("X-Signature"))
-
-			if timestamp == "" || nonce == "" || signature == "" {
-				authorization := strings.TrimSpace(r.Header.Get("Authorization"))
-				if authorization != "" {
-					parts := strings.SplitN(authorization, " ", 2)
-					if len(parts) == 2 && strings.EqualFold(parts[0], "HMAC") {
-						signature = strings.TrimSpace(parts[1])
-					}
-				}
-			}
-
-			if timestamp == "" || nonce == "" || signature == "" {
-				http.Error(w, "missing HMAC headers", http.StatusUnauthorized)
-				return
-			}
-
-			if err := auth.VerifySignature(timestamp, nonce, signature, secret); err != nil {
-				http.Error(w, "invalid HMAC signature", http.StatusUnauthorized)
-				return
-			}
-
-			next.ServeHTTP(w, r)
-		})
-	}
-}
-
-// parseInt64 is a small helper for ensuring a header is numeric.
-func parseInt64(value string) (int64, error) {
-	return strconv.ParseInt(value, 10, 64)
 }
