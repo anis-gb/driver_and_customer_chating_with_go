@@ -2,6 +2,7 @@ package driver
 
 import (
 	"net/http"
+
 	"github.com/go-chi/chi/v5"
 
 	"github.com/yourusername/go-starter/internal/socket"
@@ -38,7 +39,8 @@ func (h *MessageHandler) SendDriverMessage(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	authUserType := r.FormValue("user_type")
+	var authUserType string
+	authUserType = r.FormValue("user_type")
 	if authUserType == "" {
 		authUserType = "DRIVER"
 	}
@@ -124,7 +126,7 @@ func (h *MessageHandler) SendDriverMessage(w http.ResponseWriter, r *http.Reques
 		Gender:        msg.Gender,
 		CreatedAt:  msg.CreatedAt,
 	}
-	
+
 	h.hub.BroadcastMessage(outgoingMsg)
 
 	response.JSON(w, http.StatusCreated, "message sent", outgoingMsg)
@@ -144,7 +146,8 @@ func (h *MessageHandler) MarkDriverMessagesSeen(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	authUserType := r.FormValue("user_type")
+	var authUserType string
+	authUserType = r.FormValue("user_type")
 	if authUserType == "" {
 		authUserType = "DRIVER"
 	}
@@ -193,7 +196,8 @@ func (h *MessageHandler) EditDriverMessage(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
-	authUserType := r.FormValue("user_type")
+	var authUserType string
+	authUserType = r.FormValue("user_type")
 	if authUserType != "ADMIN" {
 		response.JSON(w, http.StatusForbidden, "only admins can edit messages", nil)
 		return
