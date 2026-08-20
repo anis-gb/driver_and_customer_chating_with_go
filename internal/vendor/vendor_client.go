@@ -170,3 +170,44 @@ func (vc *VendorClient) ToggleVendorBot(ctx context.Context, driverID string, en
 
 	return nil
 }
+
+// ForwardAgentReply sends the admin's reply to the vendor's agent reply endpoint and returns the vendor's message ID.
+func (vc *VendorClient) ForwardAgentReply(ctx context.Context, driverID, content string) (string, error) {
+	url := fmt.Sprintf("%s/agent/reply", vc.apiURL)
+	reqBody, err := json.Marshal(map[string]string{
+		"endUserId": driverID,
+		"content":   content,
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal agent reply payload: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(reqBody))
+	if err != nil {
+		return "", fmt.Errorf("failed to create agent reply request: %w", err)
+	}
+
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", vc.secretKey))
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := vc.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to perform agent reply: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("agent reply returned status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var res struct {
+		MessageID string `json:"messageId"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+		return "", fmt.Errorf("failed to decode agent reply response: %w", err)
+	}
+
+	return res.MessageID, nil
+}
+

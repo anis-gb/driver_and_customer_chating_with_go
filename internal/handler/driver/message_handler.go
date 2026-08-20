@@ -148,6 +148,17 @@ func (h *MessageHandler) SendDriverMessage(w http.ResponseWriter, r *http.Reques
 				log.Printf("[driver.SendDriverMessage] Failed to forward message to vendor for driver %s: %v", driverID, err)
 			}
 		}(targetUserID, content)
+	} else if authUserType == "ADMIN" {
+		go func(driverID, text string) {
+			// Forward admin's reply content to the vendor as the business
+			vendorMsgID, err := h.vendorClient.ForwardAgentReply(context.Background(), driverID, text)
+			if err != nil {
+				log.Printf("[driver.SendDriverMessage] Failed to forward agent reply to vendor for driver %s: %v", driverID, err)
+				return
+			}
+			// Mark the vendor message ID as processed so the SSE stream reader ignores it
+			h.sseManager.AddProcessedMessage(vendorMsgID)
+		}(targetUserID, content)
 	}
 
 	response.JSON(w, http.StatusCreated, "message sent", outgoingMsg)

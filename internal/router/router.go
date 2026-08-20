@@ -1,7 +1,6 @@
 package router
 
 import (
-	"context"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -47,8 +46,6 @@ func New(db *pgxpool.Pool, cfg *config.Config) http.Handler {
 	hub := socket.NewHub(s)
 	go hub.Run()
 
-	// Initialize AI Settings database schema automatically
-	_ = s.EnsureAISettingsTable(context.Background())
 
 	// Initialize vendor clients and background stream managers
 	vc := vendor.NewVendorClient(cfg.VendorChatAPIURL, cfg.VendorSecretKey)
@@ -60,11 +57,10 @@ func New(db *pgxpool.Pool, cfg *config.Config) http.Handler {
 	customerHistory := customer.NewHistoryHandler(s)
 	customerMessage := customer.NewMessageHandler(s, hub)
 
-	driverHistory := driver.NewHistoryHandler(s)
+	driverHistory := driver.NewHistoryHandler(s, sse)
 	driverMessage := driver.NewMessageHandler(s, hub, vc, sse)
 
 	adminHandler := admin.NewAdminHandler(s)
-	adminAIHandler := admin.NewAdminAIHandler(s, vc)
 
 	// Health Check Endpoint (checks service and PostgreSQL connection)
 	r.Get("/health", healthHandler.Health)
@@ -97,8 +93,6 @@ func New(db *pgxpool.Pool, cfg *config.Config) http.Handler {
 		r.Get("/api/admin/conversations", adminHandler.GetConversations)
 		r.Get("/api/admin/conversations/customers", adminHandler.GetCustomerConversations)
 		r.Get("/api/admin/conversations/drivers", adminHandler.GetDriverConversations)
-		r.Get("/api/admin/driver/ai-status", adminAIHandler.GetDriverAIStatus)
-		r.Post("/api/admin/driver/ai-toggle", adminAIHandler.ToggleDriverAI)
 	})
 
 	return r

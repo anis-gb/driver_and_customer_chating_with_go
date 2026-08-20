@@ -22,6 +22,7 @@ type SSEManager struct {
 	hub          *socket.Hub
 	listeners    map[string]context.CancelFunc
 	processedMsgs map[string]time.Time
+	streamClient *http.Client
 	mu           sync.Mutex
 }
 
@@ -42,6 +43,9 @@ func NewSSEManager(vc *VendorClient, s *store.Store, hub *socket.Hub) *SSEManage
 		hub:           hub,
 		listeners:     make(map[string]context.CancelFunc),
 		processedMsgs: make(map[string]time.Time),
+		streamClient: &http.Client{
+			Timeout: 0, // Infinite timeout for SSE streaming
+		},
 	}
 
 	// Periodically clean up the deduplication map (keys older than 10 minutes)
@@ -153,7 +157,7 @@ func (sm *SSEManager) readStream(ctx context.Context, driverID string) error {
 	req.Header.Set("Cache-Control", "no-cache")
 	req.Header.Set("Connection", "keep-alive")
 
-	resp, err := sm.vendorClient.httpClient.Do(req)
+	resp, err := sm.streamClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("stream request failed: %w", err)
 	}
@@ -261,3 +265,14 @@ func (sm *SSEManager) readStream(ctx context.Context, driverID string) error {
 		}
 	}
 }
+
+// AddProcessedMessage adds a vendor message ID to the deduplication map.
+func (sm *SSEManager) AddProcessedMessage(msgID string) {
+	if msgID == "" {
+		return
+	}
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sm.processedMsgs[msgID] = time.Now()
+}
+
