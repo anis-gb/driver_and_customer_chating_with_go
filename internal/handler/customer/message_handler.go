@@ -279,7 +279,11 @@ func (h *MessageHandler) SendCustomerMessage(w http.ResponseWriter, r *http.Requ
 	// Determine sender display name placeholder
 	senderName := "User"
 	if authUserType == "ADMIN" {
-		senderName = "Support Admin"
+		if msg.FullName != "" {
+			senderName = msg.FullName
+		} else {
+			senderName = "Support Admin"
+		}
 	} else if authUserType == "CUSTOMER" {
 		senderName = "Customer"
 	}
