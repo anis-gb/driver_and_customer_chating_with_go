@@ -1,11 +1,13 @@
 package router
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/yourusername/go-starter/internal/config"
 	"github.com/yourusername/go-starter/internal/handler"
 	"github.com/yourusername/go-starter/internal/handler/admin"
 	"github.com/yourusername/go-starter/internal/handler/customer"
@@ -13,10 +15,11 @@ import (
 	"github.com/yourusername/go-starter/internal/middleware"
 	"github.com/yourusername/go-starter/internal/socket"
 	"github.com/yourusername/go-starter/internal/store"
+	"github.com/yourusername/go-starter/internal/vendor"
 )
 
 // New builds and returns the fully configured HTTP router.
-func New(db *pgxpool.Pool, hmacSecret string) http.Handler {
+func New(db *pgxpool.Pool, cfg *config.Config) http.Handler {
 	r := chi.NewRouter()
 
 	// Global middleware
@@ -44,6 +47,13 @@ func New(db *pgxpool.Pool, hmacSecret string) http.Handler {
 	hub := socket.NewHub(s)
 	go hub.Run()
 
+	// Initialize AI Settings database schema automatically
+	_ = s.EnsureAISettingsTable(context.Background())
+
+	// Initialize vendor clients and background stream managers
+	vc := vendor.NewVendorClient(cfg.VendorChatAPIURL, cfg.VendorSecretKey)
+	sse := vendor.NewSSEManager(vc, s, hub)
+
 	healthHandler := handler.NewHealthHandler(db)
 	wsHandler := handler.NewWebSocketHandler(s, hub)
 
@@ -51,9 +61,10 @@ func New(db *pgxpool.Pool, hmacSecret string) http.Handler {
 	customerMessage := customer.NewMessageHandler(s, hub)
 
 	driverHistory := driver.NewHistoryHandler(s)
-	driverMessage := driver.NewMessageHandler(s, hub)
+	driverMessage := driver.NewMessageHandler(s, hub, vc, sse)
 
 	adminHandler := admin.NewAdminHandler(s)
+	adminAIHandler := admin.NewAdminAIHandler(s, vc)
 
 	// Health Check Endpoint (checks service and PostgreSQL connection)
 	r.Get("/health", healthHandler.Health)
@@ -73,7 +84,7 @@ func New(db *pgxpool.Pool, hmacSecret string) http.Handler {
 
 	// Driver Chat Endpoints — protected by HMAC
 	r.Group(func(r chi.Router) {
-		r.Use(middleware.HMACAuth(hmacSecret))
+		r.Use(middleware.HMACAuth(cfg.HMACSecret))
 		r.Get("/api/driver/messages", driverHistory.GetDriverHistory)
 		r.Post("/api/driver/messages", driverMessage.SendDriverMessage)
 		r.Post("/api/driver/messages/seen", driverMessage.MarkDriverMessagesSeen)
@@ -82,10 +93,12 @@ func New(db *pgxpool.Pool, hmacSecret string) http.Handler {
 
 	// Admin Endpoints — protected by HMAC
 	r.Group(func(r chi.Router) {
-		r.Use(middleware.HMACAuth(hmacSecret))
+		r.Use(middleware.HMACAuth(cfg.HMACSecret))
 		r.Get("/api/admin/conversations", adminHandler.GetConversations)
 		r.Get("/api/admin/conversations/customers", adminHandler.GetCustomerConversations)
 		r.Get("/api/admin/conversations/drivers", adminHandler.GetDriverConversations)
+		r.Get("/api/admin/driver/ai-status", adminAIHandler.GetDriverAIStatus)
+		r.Post("/api/admin/driver/ai-toggle", adminAIHandler.ToggleDriverAI)
 	})
 
 	return r
