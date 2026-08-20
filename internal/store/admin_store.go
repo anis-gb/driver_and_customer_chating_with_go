@@ -16,6 +16,7 @@ func (s *Store) GetAdminConversations(ctx context.Context) ([]AdminConversation,
 				sended_by AS last_message_sender,
 				seen AS is_seen,
 				created_at AS updated_at,
+				admin_id,
 				COALESCE(
 					(SELECT full_name FROM customer_messages WHERE user_id = cm.user_id AND full_name IS NOT NULL AND full_name <> '' ORDER BY created_at DESC LIMIT 1),
 					'Customer'
@@ -33,6 +34,7 @@ func (s *Store) GetAdminConversations(ctx context.Context) ([]AdminConversation,
 				sended_by AS last_message_sender,
 				seen AS is_seen,
 				created_at AS updated_at,
+				admin_id,
 				COALESCE(
 					(SELECT full_name FROM driver_messages WHERE user_id = dm.user_id AND full_name IS NOT NULL AND full_name <> '' ORDER BY created_at DESC LIMIT 1),
 					'Driver'
@@ -44,9 +46,9 @@ func (s *Store) GetAdminConversations(ctx context.Context) ([]AdminConversation,
 			ORDER BY user_id, created_at DESC
 		),
 		all_conversations AS (
-			SELECT user_id, role, last_message, last_message_sender, is_seen, full_name, profile_picture, gender, '' AS user_phone, updated_at FROM latest_customer_msgs
+			SELECT user_id, role, last_message, last_message_sender, is_seen, full_name, profile_picture, gender, '' AS user_phone, updated_at, admin_id FROM latest_customer_msgs
 			UNION ALL
-			SELECT user_id, role, last_message, last_message_sender, is_seen, full_name, profile_picture, gender, COALESCE(user_phone, '') AS user_phone, updated_at FROM latest_driver_msgs
+			SELECT user_id, role, last_message, last_message_sender, is_seen, full_name, profile_picture, gender, COALESCE(user_phone, '') AS user_phone, updated_at, admin_id FROM latest_driver_msgs
 		)
 		SELECT 
 			user_id,
@@ -58,7 +60,8 @@ func (s *Store) GetAdminConversations(ctx context.Context) ([]AdminConversation,
 			COALESCE(profile_picture, '') AS profile_picture,
 			COALESCE(gender, 'Male') AS gender,
 			user_phone,
-			updated_at
+			updated_at,
+			COALESCE(admin_id, '') AS admin_id
 		FROM all_conversations
 		ORDER BY updated_at DESC`
 
@@ -71,7 +74,7 @@ func (s *Store) GetAdminConversations(ctx context.Context) ([]AdminConversation,
 	var conversations []AdminConversation
 	for rows.Next() {
 		var ac AdminConversation
-		if err := rows.Scan(&ac.UserID, &ac.CustomerName, &ac.Role, &ac.LastMessage, &ac.LastMessageSender, &ac.IsSeen, &ac.ProfilePicture, &ac.Gender, &ac.UserPhone, &ac.UpdatedAt); err != nil {
+		if err := rows.Scan(&ac.UserID, &ac.CustomerName, &ac.Role, &ac.LastMessage, &ac.LastMessageSender, &ac.IsSeen, &ac.ProfilePicture, &ac.Gender, &ac.UserPhone, &ac.UpdatedAt, &ac.AdminID); err != nil {
 			return nil, err
 		}
 		conversations = append(conversations, ac)
@@ -107,6 +110,7 @@ func (s *Store) GetAdminConversationsForType(ctx context.Context, role string) (
 				sended_by AS last_message_sender,
 				seen AS is_seen,
 				created_at AS updated_at,
+				admin_id,
 				COALESCE(
 					(SELECT full_name FROM %s WHERE user_id = m.user_id AND full_name IS NOT NULL AND full_name <> '' ORDER BY created_at DESC LIMIT 1),
 					'%s'
@@ -127,7 +131,8 @@ func (s *Store) GetAdminConversationsForType(ctx context.Context, role string) (
 			COALESCE(profile_picture, '') AS profile_picture,
 			COALESCE(gender, 'Male') AS gender,
 			user_phone,
-			updated_at
+			updated_at,
+			COALESCE(admin_id, '') AS admin_id
 		FROM latest_msgs
 		ORDER BY updated_at DESC`, role, table, defaultName, table, table, table, table)
 
@@ -140,7 +145,7 @@ func (s *Store) GetAdminConversationsForType(ctx context.Context, role string) (
 	var conversations []AdminConversation
 	for rows.Next() {
 		var ac AdminConversation
-		if err := rows.Scan(&ac.UserID, &ac.CustomerName, &ac.Role, &ac.LastMessage, &ac.LastMessageSender, &ac.IsSeen, &ac.ProfilePicture, &ac.Gender, &ac.UserPhone, &ac.UpdatedAt); err != nil {
+		if err := rows.Scan(&ac.UserID, &ac.CustomerName, &ac.Role, &ac.LastMessage, &ac.LastMessageSender, &ac.IsSeen, &ac.ProfilePicture, &ac.Gender, &ac.UserPhone, &ac.UpdatedAt, &ac.AdminID); err != nil {
 			return nil, err
 		}
 		conversations = append(conversations, ac)
