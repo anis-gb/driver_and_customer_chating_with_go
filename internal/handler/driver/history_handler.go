@@ -7,17 +7,19 @@ import (
 	"time"
 
 	"github.com/yourusername/go-starter/internal/store"
+	"github.com/yourusername/go-starter/internal/vendor"
 	"github.com/yourusername/go-starter/pkg/response"
 )
 
 // HistoryHandler handles fetching message history.
 type HistoryHandler struct {
-	store *store.Store
+	store      *store.Store
+	sseManager *vendor.SSEManager
 }
 
 // NewHistoryHandler creates a new HistoryHandler.
-func NewHistoryHandler(s *store.Store) *HistoryHandler {
-	return &HistoryHandler{store: s}
+func NewHistoryHandler(s *store.Store, sse *vendor.SSEManager) *HistoryHandler {
+	return &HistoryHandler{store: s, sseManager: sse}
 }
 
 func (h *HistoryHandler) GetDriverHistory(w http.ResponseWriter, r *http.Request) {
@@ -70,6 +72,9 @@ func (h *HistoryHandler) GetDriverHistory(w http.ResponseWriter, r *http.Request
 			limit = parsedLimit
 		}
 	}
+
+	// Ensure background SSE listener is running for this driver to capture real-time replies
+	h.sseManager.StartSSEListener(targetUserID)
 
 	// Fetch older messages from store
 	rawMessages, err := h.store.GetDriverHistory(r.Context(), targetUserID, cursorTime, limit)

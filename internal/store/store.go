@@ -65,6 +65,7 @@ type AdminConversation struct {
 	Gender            string    `json:"gender"`
 	UserPhone         string    `json:"user_phone,omitempty"`
 	UpdatedAt         time.Time `json:"updated_at"`
+	AdminID           string    `json:"admin_id"`
 }
 
 // Store handles all database queries for users and messages.
