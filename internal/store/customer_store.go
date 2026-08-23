@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -33,7 +34,10 @@ func (s *Store) GetCustomerHistory(ctx context.Context, userID string, cursorTim
 	if cursorTime.IsZero() {
 		query := `
 			SELECT id, user_id, admin_id, sended_by, 
-			       CASE WHEN sended_by = 'ADMIN' THEN 'Support Admin' ELSE COALESCE(full_name, 'Customer') END as sender_name,
+			       CASE 
+			           WHEN sended_by = 'ADMIN' THEN COALESCE(NULLIF(full_name, ''), 'Support Admin')
+			           ELSE COALESCE(NULLIF(full_name, ''), 'Customer')
+			       END as sender_name,
 			       content, seen, COALESCE(voice_messages, ''), COALESCE(photo, ''), COALESCE(file, ''), COALESCE(user_phone, ''), COALESCE(full_name, ''), COALESCE(profile_picture, ''), COALESCE(gender, ''), created_at
 			FROM customer_messages
 			WHERE user_id = $1
@@ -43,7 +47,10 @@ func (s *Store) GetCustomerHistory(ctx context.Context, userID string, cursorTim
 	} else {
 		query := `
 			SELECT id, user_id, admin_id, sended_by, 
-			       CASE WHEN sended_by = 'ADMIN' THEN 'Support Admin' ELSE COALESCE(full_name, 'Customer') END as sender_name,
+			       CASE 
+			           WHEN sended_by = 'ADMIN' THEN COALESCE(NULLIF(full_name, ''), 'Support Admin')
+			           ELSE COALESCE(NULLIF(full_name, ''), 'Customer')
+			       END as sender_name,
 			       content, seen, COALESCE(voice_messages, ''), COALESCE(photo, ''), COALESCE(file, ''), COALESCE(user_phone, ''), COALESCE(full_name, ''), COALESCE(profile_picture, ''), COALESCE(gender, ''), created_at
 			FROM customer_messages
 			WHERE user_id = $1 AND created_at < $2
@@ -112,4 +119,24 @@ func (s *Store) EditCustomerMessage(ctx context.Context, messageID string, conte
 	}
 	m.Type = "EDIT_MESSAGE"
 	return &m, nil
+}
+
+// DeleteCustomerMessage deletes a message by ID (admin only)
+func (s *Store) DeleteCustomerMessage(ctx context.Context, messageID string) error {
+	query := `
+		DELETE FROM customer_messages 
+		WHERE id = $1 AND sended_by = 'ADMIN'
+	`
+
+	result, err := s.db.Exec(ctx, query, messageID)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected := result.RowsAffected()
+	if rowsAffected == 0 {
+		return fmt.Errorf("message not found or not an admin message")
+	}
+
+	return nil
 }
