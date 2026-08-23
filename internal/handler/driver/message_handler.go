@@ -1,6 +1,8 @@
 package driver
 
 import (
+	"context"
+	"log"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -8,18 +10,23 @@ import (
 	"github.com/yourusername/go-starter/internal/socket"
 	"github.com/yourusername/go-starter/internal/store"
 	"github.com/yourusername/go-starter/internal/utils"
+	"github.com/yourusername/go-starter/internal/vendor"
 	"github.com/yourusername/go-starter/pkg/response"
 )
 
 type MessageHandler struct {
-	store *store.Store
-	hub   *socket.Hub
+	store        *store.Store
+	hub          *socket.Hub
+	vendorClient *vendor.VendorClient
+	sseManager   *vendor.SSEManager
 }
 
-func NewMessageHandler(s *store.Store, h *socket.Hub) *MessageHandler {
+func NewMessageHandler(s *store.Store, h *socket.Hub, vc *vendor.VendorClient, sse *vendor.SSEManager) *MessageHandler {
 	return &MessageHandler{
-		store: s,
-		hub:   h,
+		store:        s,
+		hub:          h,
+		vendorClient: vc,
+		sseManager:   sse,
 	}
 }
 
@@ -128,6 +135,31 @@ func (h *MessageHandler) SendDriverMessage(w http.ResponseWriter, r *http.Reques
 	}
 
 	h.hub.BroadcastMessage(outgoingMsg)
+
+	// Forward message to the vendor and start the background SSE listener
+	if authUserType == "DRIVER" {
+		go func(driverID, text string) {
+			// Ensure background SSE listener is running to catch bot/agent replies
+			h.sseManager.StartSSEListener(driverID)
+
+			// Forward driver's message content to the vendor
+			err := h.vendorClient.ForwardMessage(context.Background(), driverID, text)
+			if err != nil {
+				log.Printf("[driver.SendDriverMessage] Failed to forward message to vendor for driver %s: %v", driverID, err)
+			}
+		}(targetUserID, content)
+	} else if authUserType == "ADMIN" {
+		go func(driverID, text string) {
+			// Forward admin's reply content to the vendor as the business
+			vendorMsgID, err := h.vendorClient.ForwardAgentReply(context.Background(), driverID, text)
+			if err != nil {
+				log.Printf("[driver.SendDriverMessage] Failed to forward agent reply to vendor for driver %s: %v", driverID, err)
+				return
+			}
+			// Mark the vendor message ID as processed so the SSE stream reader ignores it
+			h.sseManager.AddProcessedMessage(vendorMsgID)
+		}(targetUserID, content)
+	}
 
 	response.JSON(w, http.StatusCreated, "message sent", outgoingMsg)
 }
