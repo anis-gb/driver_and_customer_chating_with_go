@@ -6,7 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 )
@@ -101,17 +104,83 @@ func (vc *VendorClient) GetSessionToken(ctx context.Context, driverID string) (s
 	return res.Token, nil
 }
 
-// ForwardMessage sends the driver's message content to the vendor's /message endpoint.
-func (vc *VendorClient) ForwardMessage(ctx context.Context, driverID, content string) error {
+// UploadMedia uploads a local file to the vendor and returns the URL and classified messageType.
+func (vc *VendorClient) UploadMedia(ctx context.Context, driverID, localFilePath string) (string, string, error) {
+	token, err := vc.GetSessionToken(ctx, driverID)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to get session token for upload: %w", err)
+	}
+
+	file, err := os.Open(localFilePath)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to open local file: %w", err)
+	}
+	defer file.Close()
+
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	
+	part, err := writer.CreateFormFile("file", filepath.Base(localFilePath))
+	if err != nil {
+		return "", "", fmt.Errorf("failed to create form file: %w", err)
+	}
+	
+	if _, err = io.Copy(part, file); err != nil {
+		return "", "", fmt.Errorf("failed to copy file contents: %w", err)
+	}
+	
+	if err := writer.Close(); err != nil {
+		return "", "", fmt.Errorf("failed to close multipart writer: %w", err)
+	}
+
+	url := fmt.Sprintf("%s/upload", vc.apiURL)
+	req, err := http.NewRequestWithContext(ctx, "POST", url, body)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to create upload request: %w", err)
+	}
+
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	resp, err := vc.httpClient.Do(req)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to perform upload: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return "", "", fmt.Errorf("upload returned status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var res struct {
+		URL         string `json:"url"`
+		MessageType string `json:"messageType"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+		return "", "", fmt.Errorf("failed to decode upload response: %w", err)
+	}
+
+	return res.URL, res.MessageType, nil
+}
+
+// ForwardMessage sends the driver's message content (text or media URL) to the vendor's /message endpoint.
+func (vc *VendorClient) ForwardMessage(ctx context.Context, driverID, content, messageType string) error {
 	token, err := vc.GetSessionToken(ctx, driverID)
 	if err != nil {
 		return fmt.Errorf("failed to get session token for forwarding: %w", err)
 	}
 
 	url := fmt.Sprintf("%s/message", vc.apiURL)
-	reqBody, err := json.Marshal(map[string]string{
+	
+	payload := map[string]string{
 		"content": content,
-	})
+	}
+	if messageType != "" && messageType != "TEXT" {
+		payload["messageType"] = messageType
+	}
+	
+	reqBody, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("failed to marshal message payload: %w", err)
 	}
