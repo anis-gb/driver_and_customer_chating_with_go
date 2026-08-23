@@ -54,6 +54,25 @@ func (h *MessageHandler) SendDriverMessage(w http.ResponseWriter, r *http.Reques
 
 	content := utils.CleanText(r.FormValue("content"))
 	userPhone := utils.CleanText(r.FormValue("user_phone"))
+	
+	if authUserType == "DRIVER" {
+		if userPhone == "" {
+			response.JSON(w, http.StatusBadRequest, "user_phone form field is required", nil)
+			return
+		}
+		
+		taken, err := h.store.IsDriverPhoneTaken(r.Context(), userPhone, authUserID)
+		if err != nil {
+			log.Printf("[driver.SendDriverMessage] Failed to check phone uniqueness: %v", err)
+			response.JSON(w, http.StatusInternalServerError, "failed to validate phone number", nil)
+			return
+		}
+		if taken {
+			response.JSON(w, http.StatusBadRequest, "phone number is already associated with another user", nil)
+			return
+		}
+	}
+
 	fullName := utils.CleanText(r.FormValue("full_name"))
 	profilePicture := utils.CleanText(r.FormValue("profile_picture"))
 	gender := utils.CleanText(r.FormValue("gender"))
