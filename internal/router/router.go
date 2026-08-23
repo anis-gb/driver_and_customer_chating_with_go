@@ -52,7 +52,7 @@ func New(db *pgxpool.Pool, cfg *config.Config) http.Handler {
 	sse := vendor.NewSSEManager(vc, s, hub)
 
 	healthHandler := handler.NewHealthHandler(db)
-	wsHandler := handler.NewWebSocketHandler(s, hub)
+	wsHandler := handler.NewWebSocketHandler(s, hub, cfg.HMACSecret)
 
 	customerHistory := customer.NewHistoryHandler(s)
 	customerMessage := customer.NewMessageHandler(s, hub)
@@ -72,11 +72,14 @@ func New(db *pgxpool.Pool, cfg *config.Config) http.Handler {
 	// WebSocket Endpoint
 	r.Get("/ws", wsHandler.ServeWS)
 
-	// Customer Chat Endpoints (no HMAC — public facing)
-	r.Get("/api/customer/messages", customerHistory.GetCustomerHistory)
-	r.Post("/api/customer/messages", customerMessage.SendCustomerMessage)
-	r.Post("/api/customer/messages/seen", customerMessage.MarkCustomerMessagesSeen)
-	r.Patch("/api/customer/messages/{id}", customerMessage.EditCustomerMessage)
+	// Customer Chat Endpoints — protected by HMAC
+	r.Group(func(r chi.Router) {
+		r.Use(middleware.HMACAuth(cfg.HMACSecret))
+		r.Get("/api/customer/messages", customerHistory.GetCustomerHistory)
+		r.Post("/api/customer/messages", customerMessage.SendCustomerMessage)
+		r.Post("/api/customer/messages/seen", customerMessage.MarkCustomerMessagesSeen)
+		r.Patch("/api/customer/messages/{id}", customerMessage.EditCustomerMessage)
+	})
 
 	// Driver Chat Endpoints — protected by HMAC
 	r.Group(func(r chi.Router) {

@@ -23,18 +23,34 @@ func (s *Store) InsertDriverMessage(ctx context.Context, userID string, adminID 
 	return msg, nil
 }
 
+// IsDriverPhoneTaken checks if the given phone number is already associated with a different driver user_id.
+func (s *Store) IsDriverPhoneTaken(ctx context.Context, phone string, userID string) (bool, error) {
+	var count int
+	query := `
+		SELECT COUNT(*) 
+		FROM driver_messages 
+		WHERE user_phone = $1 AND user_id != $2`
+	
+	err := s.db.QueryRow(ctx, query, phone, userID).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	
+	return count > 0, nil
+}
+
 // GetDriverHistory returns messages for a specific driver user.
 func (s *Store) GetDriverHistory(ctx context.Context, userID string, cursorTime time.Time, limit int) ([]OutgoingMessage, error) {
 	var rows pgx.Rows
 	var err error
 
-	queryLimit := limit + 1
+	queryLimit := limit + 10
 
 	if cursorTime.IsZero() {
 		query := `
 			SELECT id, user_id, admin_id, sended_by, 
-			       CASE WHEN sended_by = 'ADMIN' THEN 'Support Admin' ELSE COALESCE(full_name, 'Driver') END as sender_name,
-			       content, seen, COALESCE(voice_messages, ''), COALESCE(photo, ''), COALESCE(file, ''), COALESCE(user_phone, ''), COALESCE(full_name, ''), COALESCE(profile_picture, ''), COALESCE(gender, ''), created_at
+				CASE WHEN sended_by = 'ADMIN' THEN 'Support Admin' ELSE COALESCE(full_name, 'Driver') END as sender_name,
+				content, seen, COALESCE(voice_messages, ''), COALESCE(photo, ''), COALESCE(file, ''), COALESCE(user_phone, ''), COALESCE(full_name, ''), COALESCE(profile_picture, ''), COALESCE(gender, ''), created_at
 			FROM driver_messages
 			WHERE user_id = $1
 			ORDER BY created_at DESC
@@ -43,8 +59,8 @@ func (s *Store) GetDriverHistory(ctx context.Context, userID string, cursorTime 
 	} else {
 		query := `
 			SELECT id, user_id, admin_id, sended_by, 
-			       CASE WHEN sended_by = 'ADMIN' THEN 'Support Admin' ELSE COALESCE(full_name, 'Driver') END as sender_name,
-			       content, seen, COALESCE(voice_messages, ''), COALESCE(photo, ''), COALESCE(file, ''), COALESCE(user_phone, ''), COALESCE(full_name, ''), COALESCE(profile_picture, ''), COALESCE(gender, ''), created_at
+				CASE WHEN sended_by = 'ADMIN' THEN 'Support Admin' ELSE COALESCE(full_name, 'Driver') END as sender_name,
+				content, seen, COALESCE(voice_messages, ''), COALESCE(photo, ''), COALESCE(file, ''), COALESCE(user_phone, ''), COALESCE(full_name, ''), COALESCE(profile_picture, ''), COALESCE(gender, ''), created_at
 			FROM driver_messages
 			WHERE user_id = $1 AND created_at < $2
 			ORDER BY created_at DESC

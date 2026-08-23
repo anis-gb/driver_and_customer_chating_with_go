@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/gorilla/websocket"
+	"github.com/yourusername/go-starter/internal/middleware"
 	"github.com/yourusername/go-starter/internal/socket"
 	"github.com/yourusername/go-starter/internal/store"
 	"github.com/yourusername/go-starter/pkg/response"
@@ -14,28 +15,47 @@ var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
 	CheckOrigin: func(r *http.Request) bool {
-		// Allow all connections in development
-		return true
+		// In production, you should check r.Header.Get("Origin") against allowed domains.
+		return true 
 	},
 }
 
 // WebSocketHandler handles upgrading HTTP requests to WebSocket.
 type WebSocketHandler struct {
-	store *store.Store
-	hub   *socket.Hub
+	store  *store.Store
+	hub    *socket.Hub
+	secret string
 }
 
 // NewWebSocketHandler creates a new WebSocketHandler.
-func NewWebSocketHandler(s *store.Store, h *socket.Hub) *WebSocketHandler {
+func NewWebSocketHandler(s *store.Store, h *socket.Hub, secret string) *WebSocketHandler {
 	return &WebSocketHandler{
-		store: s,
-		hub:   h,
+		store:  s,
+		hub:    h,
+		secret: secret,
 	}
 }
 
 // ServeWS upgrades the connection and registers the client in the hub.
 func (h *WebSocketHandler) ServeWS(w http.ResponseWriter, r *http.Request) {
-	// 1. Extract query parameters
+	// 1. Extract authentication parameters from query string
+	tsStr := r.URL.Query().Get("timestamp")
+	nonce := r.URL.Query().Get("nonce")
+	signature := r.URL.Query().Get("signature")
+
+	if tsStr == "" || nonce == "" || signature == "" {
+		response.JSON(w, http.StatusUnauthorized, "missing authentication parameters (timestamp, nonce, signature)", nil)
+		return
+	}
+
+	// Validate the HMAC signature and nonce
+	err := middleware.ValidateHMAC(r.Method, r.URL.Path, tsStr, nonce, signature, h.secret)
+	if err != nil {
+		response.JSON(w, http.StatusUnauthorized, err.Error(), nil)
+		return
+	}
+
+	// 2. Extract user identifiers
 	userID := r.URL.Query().Get("user_id")
 	if userID == "" {
 		response.JSON(w, http.StatusBadRequest, "user_id query parameter is required", nil)
@@ -48,7 +68,7 @@ func (h *WebSocketHandler) ServeWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 2. Upgrade to WebSocket
+	// 3. Upgrade to WebSocket
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("Failed to upgrade HTTP connection: %v", err)

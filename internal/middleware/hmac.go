@@ -1,22 +1,43 @@
-﻿package middleware
+package middleware
 
 import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 )
+
+var nonceCache sync.Map
+
+func init() {
+	// Background cleanup routine for nonces older than 5 minutes
+	go func() {
+		for {
+			time.Sleep(1 * time.Minute)
+			now := time.Now().Unix()
+			nonceCache.Range(func(key, value interface{}) bool {
+				ts := value.(int64)
+				if now-ts > 300 { // older than 5 minutes
+					nonceCache.Delete(key)
+				}
+				return true
+			})
+		}
+	}()
+}
 
 // HMACAuth returns a middleware that validates HMAC-SHA256 request signatures.
 // Every protected request must include three headers:
 //   X-Timestamp : Unix timestamp (seconds) when the request was signed
 //   X-Nonce     : Random hex string (used once per request)
-//   X-Signature : hex(HMAC-SHA256("{timestamp}|{nonce}", secret))
+//   X-Signature : hex(HMAC-SHA256("{method}|{uri}|{timestamp}|{nonce}", secret))
 //
-// Requests older than 5 minutes are rejected to prevent replay attacks.
+// Requests older than 5 minutes or reusing a nonce are rejected to prevent replay attacks.
 func HMACAuth(secret string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -30,42 +51,61 @@ func HMACAuth(secret string) func(http.Handler) http.Handler {
 			nonce := r.Header.Get("X-Nonce")
 			signature := r.Header.Get("X-Signature")
 
-			if tsStr == "" || nonce == "" || signature == "" {
-				hmacError(w, http.StatusUnauthorized, "missing HMAC authentication headers (X-Timestamp, X-Nonce, X-Signature)")
-				return
-			}
-
-			// Parse and validate timestamp
-			ts, err := strconv.ParseInt(tsStr, 10, 64)
+			err := ValidateHMAC(r.Method, r.URL.Path, tsStr, nonce, signature, secret)
 			if err != nil {
-				hmacError(w, http.StatusUnauthorized, "invalid X-Timestamp header")
-				return
-			}
-
-			requestTime := time.Unix(ts, 0)
-			diff := time.Since(requestTime)
-			if diff < 0 {
-				diff = -diff // handle slight clock skew
-			}
-			if diff > 5*time.Minute {
-				hmacError(w, http.StatusUnauthorized, "request has expired (timestamp too old or too far in the future)")
-				return
-			}
-
-			// Compute expected signature: HMAC-SHA256("{timestamp}|{nonce}", secret)
-			mac := hmac.New(sha256.New, []byte(secret))
-			mac.Write([]byte(tsStr + "|" + nonce))
-			expected := hex.EncodeToString(mac.Sum(nil))
-
-			// Constant-time comparison to prevent timing attacks
-			if !hmac.Equal([]byte(expected), []byte(signature)) {
-				hmacError(w, http.StatusUnauthorized, "invalid HMAC signature")
+				hmacError(w, http.StatusUnauthorized, err.Error())
 				return
 			}
 
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// ValidateHMAC exposes the signature validation and nonce-checking logic for non-middleware usage (e.g., WebSockets).
+func ValidateHMAC(method, uri, tsStr, nonce, signature, secret string) error {
+	if tsStr == "" || nonce == "" || signature == "" {
+		return fmt.Errorf("missing HMAC authentication headers (X-Timestamp, X-Nonce, X-Signature)")
+	}
+
+	ts, err := strconv.ParseInt(tsStr, 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid X-Timestamp header")
+	}
+
+	requestTime := time.Unix(ts, 0)
+	diff := time.Since(requestTime)
+	if diff < 0 {
+		diff = -diff // handle slight clock skew
+	}
+	if diff > 5*time.Minute {
+		return fmt.Errorf("request has expired (timestamp too old or too far in the future)")
+	}
+
+	// Compute expected signature: HMAC-SHA256("{method}|{uri}|{timestamp}|{nonce}", secret)
+	payload := method + "|" + uri + "|" + tsStr + "|" + nonce
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(payload))
+	expected := hex.EncodeToString(mac.Sum(nil))
+
+	// Debug logging
+	fmt.Printf("HMAC Debug | Method: %s | URI: %s | TS: %s | Nonce: %s\n", method, uri, tsStr, nonce)
+	fmt.Printf("HMAC Debug | Payload to sign: %s\n", payload)
+	fmt.Printf("HMAC Debug | Expected Signature: %s\n", expected)
+	fmt.Printf("HMAC Debug | Received Signature: %s\n", signature)
+	fmt.Printf("HMAC Debug | Secret Used (first 4 chars): %s...\n", secret[:4])
+
+	// Constant-time comparison to prevent timing attacks
+	if !hmac.Equal([]byte(expected), []byte(signature)) {
+		return fmt.Errorf("invalid HMAC signature")
+	}
+
+	// Signature is valid, now check and consume the nonce
+	if _, loaded := nonceCache.LoadOrStore(nonce, ts); loaded {
+		return fmt.Errorf("nonce has already been used (replay attack detected)")
+	}
+
+	return nil
 }
 
 func hmacError(w http.ResponseWriter, code int, message string) {
