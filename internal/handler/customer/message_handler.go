@@ -64,7 +64,6 @@ func getFileTypeDescription(fileType string) string {
 	if !exists {
 		return ""
 	}
-
 	var extList []string
 	for ext, desc := range extensions {
 		extList = append(extList, fmt.Sprintf("%s (%s)", ext, desc))
@@ -74,18 +73,14 @@ func getFileTypeDescription(fileType string) string {
 
 // saveUploadedFile saves an uploaded file to the server with validation
 func saveUploadedFile(file multipart.File, header *multipart.FileHeader, fileType string) (string, error) {
-	// Max file size validation (10MB)
 	const maxFileSize = 10 * 1024 * 1024 // 10MB
 
-	// Check file size
 	if header.Size > maxFileSize {
-		return "", fmt.Errorf("file size exceeds %d MB. Maximum allowed size is 10MB", maxFileSize/1024/1024)
+		return "", fmt.Errorf("file size exceeds %d MB", maxFileSize/1024/1024)
 	}
 
-	// Get file extension
 	ext := strings.ToLower(filepath.Ext(header.Filename))
 	if ext == "" {
-		// Try to detect from content type
 		contentType := header.Header.Get("Content-Type")
 		switch contentType {
 		case "audio/mpeg", "audio/mp3":
@@ -117,42 +112,33 @@ func saveUploadedFile(file multipart.File, header *multipart.FileHeader, fileTyp
 		}
 	}
 
-	// Check if extension is allowed
 	allowedExts, exists := allowedFiles[fileType]
 	if !exists {
 		return "", fmt.Errorf("unknown file type: %s", fileType)
 	}
-
 	if _, allowed := allowedExts[ext]; !allowed {
-		allowedList := getFileTypeDescription(fileType)
-		return "", fmt.Errorf("file type '%s' is not allowed for %s files. Allowed types: %s",
-			ext, fileType, allowedList)
+		return "", fmt.Errorf("file type '%s' not allowed for %s. Allowed: %s",
+			ext, fileType, getFileTypeDescription(fileType))
 	}
 
-	// Create uploads directory
 	uploadDir := fmt.Sprintf("uploads/%s", fileType)
 	if err := os.MkdirAll(uploadDir, 0755); err != nil {
 		return "", fmt.Errorf("failed to create upload directory: %w", err)
 	}
 
-	// Generate unique filename
 	filename := fmt.Sprintf("%s_%d%s", fileType, time.Now().UnixNano(), ext)
 	filePath := filepath.Join(uploadDir, filename)
 
-	// Create destination file
 	dst, err := os.Create(filePath)
 	if err != nil {
 		return "", fmt.Errorf("failed to create file: %w", err)
 	}
 	defer dst.Close()
 
-	// Copy uploaded file to destination
 	if _, err := io.Copy(dst, file); err != nil {
-		// Clean up partial file on error
 		os.Remove(filePath)
 		return "", fmt.Errorf("failed to save file: %w", err)
 	}
-
 	return filePath, nil
 }
 
@@ -162,7 +148,7 @@ type MessageHandler struct {
 	hub            *socket.Hub
 	customerClient *vendor.CustomerClient
 	customerSSE    *vendor.CustomerSSEManager
-	baseURL        string // Base URL for constructing public file URLs
+	baseURL        string
 }
 
 // NewMessageHandler creates a new message handler instance
@@ -171,7 +157,7 @@ func NewMessageHandler(
 	h *socket.Hub,
 	customerClient *vendor.CustomerClient,
 	customerSSE *vendor.CustomerSSEManager,
-	baseURL string, // e.g., "https://yourdomain.com"
+	baseURL string,
 ) *MessageHandler {
 	return &MessageHandler{
 		store:          s,
@@ -184,15 +170,23 @@ func NewMessageHandler(
 
 // SendCustomerMessage handles sending a new customer message
 func (h *MessageHandler) SendCustomerMessage(w http.ResponseWriter, r *http.Request) {
-	// Parse multipart form data with a max memory of 10MB
-	if err := r.ParseMultipartForm(10 << 20); err != nil {
+	// Determine if the request is multipart (file upload) or urlencoded
+	contentType := r.Header.Get("Content-Type")
+	isMultipart := strings.HasPrefix(contentType, "multipart/form-data")
+
+	// Parse the request body accordingly
+	if isMultipart {
+		if err := r.ParseMultipartForm(10 << 20); err != nil {
+			response.JSON(w, http.StatusBadRequest, "failed to parse multipart form", nil)
+			return
+		}
+	} else {
 		if err := r.ParseForm(); err != nil {
-			response.JSON(w, http.StatusBadRequest, "failed to parse form data", nil)
+			response.JSON(w, http.StatusBadRequest, "failed to parse form", nil)
 			return
 		}
 	}
 
-	// Authenticated User ID (the sender) is now expected in the form data
 	authUserID := r.FormValue("user_id")
 	if authUserID == "" {
 		response.JSON(w, http.StatusBadRequest, "user_id form field is required (sender)", nil)
@@ -204,15 +198,25 @@ func (h *MessageHandler) SendCustomerMessage(w http.ResponseWriter, r *http.Requ
 		authUserType = "CUSTOMER"
 	}
 
-	// Get content and media files
 	content := utils.CleanText(r.FormValue("content"))
 
-	// Handle file uploads
+	// Helper to get a file only if the request is multipart
+	getFile := func(key string) (multipart.File, *multipart.FileHeader, error) {
+		if !isMultipart {
+			return nil, nil, http.ErrMissingFile // treat as missing
+		}
+		return r.FormFile(key)
+	}
+
 	var voicePath, photoPath, filePath string
 	var err error
 
-	// Check for voice file
-	voiceFile, voiceHeader, err := r.FormFile("voice_messages")
+	// Voice file
+	voiceFile, voiceHeader, err := getFile("voice_messages")
+	if err != nil && err != http.ErrMissingFile && err != http.ErrNotMultipart {
+		response.JSON(w, http.StatusBadRequest, "invalid voice file: "+err.Error(), nil)
+		return
+	}
 	if err == nil {
 		defer voiceFile.Close()
 		voicePath, err = saveUploadedFile(voiceFile, voiceHeader, "voice")
@@ -220,13 +224,14 @@ func (h *MessageHandler) SendCustomerMessage(w http.ResponseWriter, r *http.Requ
 			response.JSON(w, http.StatusBadRequest, err.Error(), nil)
 			return
 		}
-	} else if err != http.ErrMissingFile {
-		response.JSON(w, http.StatusBadRequest, "invalid voice file: "+err.Error(), nil)
-		return
 	}
 
-	// Check for photo file
-	photoFile, photoHeader, err := r.FormFile("photo")
+	// Photo file
+	photoFile, photoHeader, err := getFile("photo")
+	if err != nil && err != http.ErrMissingFile && err != http.ErrNotMultipart {
+		response.JSON(w, http.StatusBadRequest, "invalid photo file: "+err.Error(), nil)
+		return
+	}
 	if err == nil {
 		defer photoFile.Close()
 		photoPath, err = saveUploadedFile(photoFile, photoHeader, "photo")
@@ -234,13 +239,14 @@ func (h *MessageHandler) SendCustomerMessage(w http.ResponseWriter, r *http.Requ
 			response.JSON(w, http.StatusBadRequest, err.Error(), nil)
 			return
 		}
-	} else if err != http.ErrMissingFile {
-		response.JSON(w, http.StatusBadRequest, "invalid photo file: "+err.Error(), nil)
-		return
 	}
 
-	// Check for file attachment
-	file, fileHeader, err := r.FormFile("file")
+	// File attachment
+	file, fileHeader, err := getFile("file")
+	if err != nil && err != http.ErrMissingFile && err != http.ErrNotMultipart {
+		response.JSON(w, http.StatusBadRequest, "invalid file: "+err.Error(), nil)
+		return
+	}
 	if err == nil {
 		defer file.Close()
 		filePath, err = saveUploadedFile(file, fileHeader, "file")
@@ -248,18 +254,13 @@ func (h *MessageHandler) SendCustomerMessage(w http.ResponseWriter, r *http.Requ
 			response.JSON(w, http.StatusBadRequest, err.Error(), nil)
 			return
 		}
-	} else if err != http.ErrMissingFile {
-		response.JSON(w, http.StatusBadRequest, "invalid file: "+err.Error(), nil)
-		return
 	}
 
-	// VALIDATION: At least one of content, voice, photo, or file must be provided
 	if content == "" && voicePath == "" && photoPath == "" && filePath == "" {
 		response.JSON(w, http.StatusBadRequest, "at least one of content, voice_messages, photo, or file is required", nil)
 		return
 	}
 
-	// Get other optional fields
 	userPhone := r.FormValue("user_phone")
 	fullName := r.FormValue("full_name")
 	profilePicture := r.FormValue("profile_picture")
@@ -271,34 +272,29 @@ func (h *MessageHandler) SendCustomerMessage(w http.ResponseWriter, r *http.Requ
 	if authUserType == "ADMIN" {
 		targetUserID = r.FormValue("target_user_id")
 		if targetUserID == "" {
-			response.JSON(w, http.StatusBadRequest, "target_user_id form field is required when admin sends a message", nil)
+			response.JSON(w, http.StatusBadRequest, "target_user_id required for admin", nil)
 			return
 		}
 		adminID = &authUserID
 	} else {
-		// Customers always send messages to their own chat thread
 		targetUserID = authUserID
 		adminID = nil
-		// Enforce alignment of sender type with endpoint channel
 		authUserType = "CUSTOMER"
 
 		// Start SSE listener for this customer
 		go h.customerSSE.StartCustomerSSEListener(targetUserID)
 
-		// --- FIX: Enable bot and forward message with media ---
+		// Enable bot and forward message asynchronously (existing logic)
 		go func() {
-			// Use a background context with a timeout (adjust as needed)
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 
-			// 1. Enable bot replies for this customer
 			if err := h.customerClient.ToggleVendorBot(ctx, targetUserID, true); err != nil {
 				log.Printf("[CustomerMessage] Failed to enable bot for %s: %v", targetUserID, err)
 			} else {
 				log.Printf("[CustomerMessage] Bot enabled for customer %s", targetUserID)
 			}
 
-			// 2. Prepare media info if any file uploaded
 			var mediaType, mediaURL string
 			if voicePath != "" {
 				mediaType = "audio"
@@ -311,13 +307,10 @@ func (h *MessageHandler) SendCustomerMessage(w http.ResponseWriter, r *http.Requ
 				mediaURL = h.baseURL + "/" + filePath
 			}
 
-			// 3. Forward message to vendor API
 			var forwardErr error
 			if mediaType != "" && mediaURL != "" {
-				// Send with media
 				forwardErr = h.customerClient.ForwardMessageWithMedia(ctx, targetUserID, content, mediaType, mediaURL)
 			} else if content != "" {
-				// Send text only
 				forwardErr = h.customerClient.ForwardMessage(ctx, targetUserID, content)
 			}
 			if forwardErr != nil {
@@ -335,7 +328,7 @@ func (h *MessageHandler) SendCustomerMessage(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Determine sender display name placeholder
+	// Determine sender display name
 	senderName := "User"
 	if authUserType == "ADMIN" {
 		if msg.FullName != "" {
@@ -366,8 +359,19 @@ func (h *MessageHandler) SendCustomerMessage(w http.ResponseWriter, r *http.Requ
 		Gender:         msg.Gender,
 		CreatedAt:      msg.CreatedAt,
 	}
-
 	h.hub.BroadcastMessage(outgoingMsg)
+
+	// NEW: Admin reply forwarding (like driver)
+	if authUserType == "ADMIN" {
+		go func(customerID, text string) {
+			vendorMsgID, err := h.customerClient.ForwardAgentReply(context.Background(), customerID, text)
+			if err != nil {
+				log.Printf("[CustomerMessage] Failed to forward agent reply to vendor for customer %s: %v", customerID, err)
+				return
+			}
+			h.customerSSE.AddProcessedMessage(vendorMsgID)
+		}(targetUserID, content)
+	}
 
 	response.JSON(w, http.StatusCreated, "message sent", outgoingMsg)
 }
@@ -401,7 +405,6 @@ func (h *MessageHandler) MarkCustomerMessagesSeen(w http.ResponseWriter, r *http
 		}
 	} else {
 		targetUserID = authUserID
-		// Enforce alignment of sender type with endpoint channel
 		authUserType = "CUSTOMER"
 	}
 
@@ -410,7 +413,6 @@ func (h *MessageHandler) MarkCustomerMessagesSeen(w http.ResponseWriter, r *http
 		return
 	}
 
-	// Broadcast READ_STATUS
 	readMsg := store.OutgoingMessage{
 		Type:     "READ_STATUS",
 		UserID:   targetUserID,
@@ -469,8 +471,7 @@ func (h *MessageHandler) GetCustomerHistory(w http.ResponseWriter, r *http.Reque
 	}
 
 	cursor := r.URL.Query().Get("cursor")
-	limit := 20 // default limit
-
+	limit := 20
 	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
 		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 100 {
 			limit = l
@@ -479,7 +480,6 @@ func (h *MessageHandler) GetCustomerHistory(w http.ResponseWriter, r *http.Reque
 
 	var cursorTime time.Time
 	if cursor != "" {
-		// Parse cursor time (expected format: RFC3339)
 		if t, err := time.Parse(time.RFC3339, cursor); err == nil {
 			cursorTime = t
 		}
@@ -491,14 +491,12 @@ func (h *MessageHandler) GetCustomerHistory(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Check if there are more messages
 	hasMore := false
 	if len(messages) > limit {
 		hasMore = true
 		messages = messages[:limit]
 	}
 
-	// Get the last message timestamp for next cursor
 	var nextCursor string
 	if len(messages) > 0 {
 		nextCursor = messages[len(messages)-1].CreatedAt.Format(time.RFC3339)
@@ -530,7 +528,6 @@ func (h *MessageHandler) DeleteCustomerMessage(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	// Broadcast delete event
 	deleteMsg := store.OutgoingMessage{
 		Type: "DELETE_MESSAGE",
 		ID:   messageID,
