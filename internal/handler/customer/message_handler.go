@@ -1,8 +1,10 @@
 package customer
 
 import (
+	"context"
 	"fmt"
 	"io"
+	"log"
 	"mime/multipart"
 	"net/http"
 	"os"
@@ -16,6 +18,7 @@ import (
 	"github.com/yourusername/go-starter/internal/socket"
 	"github.com/yourusername/go-starter/internal/store"
 	"github.com/yourusername/go-starter/internal/utils"
+	"github.com/yourusername/go-starter/internal/vendor"
 	"github.com/yourusername/go-starter/pkg/response"
 )
 
@@ -155,15 +158,27 @@ func saveUploadedFile(file multipart.File, header *multipart.FileHeader, fileTyp
 
 // MessageHandler handles customer message operations
 type MessageHandler struct {
-	store *store.Store
-	hub   *socket.Hub
+	store          *store.Store
+	hub            *socket.Hub
+	customerClient *vendor.CustomerClient
+	customerSSE    *vendor.CustomerSSEManager
+	baseURL        string // Base URL for constructing public file URLs
 }
 
 // NewMessageHandler creates a new message handler instance
-func NewMessageHandler(s *store.Store, h *socket.Hub) *MessageHandler {
+func NewMessageHandler(
+	s *store.Store,
+	h *socket.Hub,
+	customerClient *vendor.CustomerClient,
+	customerSSE *vendor.CustomerSSEManager,
+	baseURL string, // e.g., "https://yourdomain.com"
+) *MessageHandler {
 	return &MessageHandler{
-		store: s,
-		hub:   h,
+		store:          s,
+		hub:            h,
+		customerClient: customerClient,
+		customerSSE:    customerSSE,
+		baseURL:        baseURL,
 	}
 }
 
@@ -200,7 +215,6 @@ func (h *MessageHandler) SendCustomerMessage(w http.ResponseWriter, r *http.Requ
 	voiceFile, voiceHeader, err := r.FormFile("voice_messages")
 	if err == nil {
 		defer voiceFile.Close()
-		// Save voice file and get path
 		voicePath, err = saveUploadedFile(voiceFile, voiceHeader, "voice")
 		if err != nil {
 			response.JSON(w, http.StatusBadRequest, err.Error(), nil)
@@ -267,6 +281,51 @@ func (h *MessageHandler) SendCustomerMessage(w http.ResponseWriter, r *http.Requ
 		adminID = nil
 		// Enforce alignment of sender type with endpoint channel
 		authUserType = "CUSTOMER"
+
+		// Start SSE listener for this customer
+		go h.customerSSE.StartCustomerSSEListener(targetUserID)
+
+		// --- FIX: Enable bot and forward message with media ---
+		go func() {
+			// Use a background context with a timeout (adjust as needed)
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+
+			// 1. Enable bot replies for this customer
+			if err := h.customerClient.ToggleVendorBot(ctx, targetUserID, true); err != nil {
+				log.Printf("[CustomerMessage] Failed to enable bot for %s: %v", targetUserID, err)
+			} else {
+				log.Printf("[CustomerMessage] Bot enabled for customer %s", targetUserID)
+			}
+
+			// 2. Prepare media info if any file uploaded
+			var mediaType, mediaURL string
+			if voicePath != "" {
+				mediaType = "audio"
+				mediaURL = h.baseURL + "/" + voicePath
+			} else if photoPath != "" {
+				mediaType = "image"
+				mediaURL = h.baseURL + "/" + photoPath
+			} else if filePath != "" {
+				mediaType = "file"
+				mediaURL = h.baseURL + "/" + filePath
+			}
+
+			// 3. Forward message to vendor API
+			var forwardErr error
+			if mediaType != "" && mediaURL != "" {
+				// Send with media
+				forwardErr = h.customerClient.ForwardMessageWithMedia(ctx, targetUserID, content, mediaType, mediaURL)
+			} else if content != "" {
+				// Send text only
+				forwardErr = h.customerClient.ForwardMessage(ctx, targetUserID, content)
+			}
+			if forwardErr != nil {
+				log.Printf("[CustomerMessage] Failed to forward message to vendor: %v", forwardErr)
+			} else {
+				log.Printf("[CustomerMessage] Message forwarded to vendor for customer %s", targetUserID)
+			}
+		}()
 	}
 
 	// Persist the message
