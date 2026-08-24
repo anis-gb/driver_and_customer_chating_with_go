@@ -54,6 +54,25 @@ func (h *MessageHandler) SendDriverMessage(w http.ResponseWriter, r *http.Reques
 
 	content := utils.CleanText(r.FormValue("content"))
 	userPhone := utils.CleanText(r.FormValue("user_phone"))
+	
+	if authUserType == "DRIVER" {
+		if userPhone == "" {
+			response.JSON(w, http.StatusBadRequest, "user_phone form field is required", nil)
+			return
+		}
+		
+		taken, err := h.store.IsDriverPhoneTaken(r.Context(), userPhone, authUserID)
+		if err != nil {
+			log.Printf("[driver.SendDriverMessage] Failed to check phone uniqueness: %v", err)
+			response.JSON(w, http.StatusInternalServerError, "failed to validate phone number", nil)
+			return
+		}
+		if taken {
+			response.JSON(w, http.StatusBadRequest, "phone number is already associated with another user", nil)
+			return
+		}
+	}
+
 	fullName := utils.CleanText(r.FormValue("full_name"))
 	profilePicture := utils.CleanText(r.FormValue("profile_picture"))
 	gender := utils.CleanText(r.FormValue("gender"))
@@ -138,16 +157,49 @@ func (h *MessageHandler) SendDriverMessage(w http.ResponseWriter, r *http.Reques
 
 	// Forward message to the vendor and start the background SSE listener
 	if authUserType == "DRIVER" {
-		go func(driverID, text string) {
+		go func(driverID, text, vPath, pPath, fPath string) {
 			// Ensure background SSE listener is running to catch bot/agent replies
 			h.sseManager.StartSSEListener(driverID)
+			ctx := context.Background()
 
-			// Forward driver's message content to the vendor
-			err := h.vendorClient.ForwardMessage(context.Background(), driverID, text)
-			if err != nil {
-				log.Printf("[driver.SendDriverMessage] Failed to forward message to vendor for driver %s: %v", driverID, err)
+			// 1. Forward Photo
+			if pPath != "" {
+				url, msgType, err := h.vendorClient.UploadMedia(ctx, driverID, pPath)
+				if err == nil {
+					h.vendorClient.ForwardMessage(ctx, driverID, url, msgType)
+				} else {
+					log.Printf("[driver.SendDriverMessage] Failed to upload photo: %v", err)
+				}
 			}
-		}(targetUserID, content)
+
+			// 2. Forward Voice
+			if vPath != "" {
+				url, msgType, err := h.vendorClient.UploadMedia(ctx, driverID, vPath)
+				if err == nil {
+					h.vendorClient.ForwardMessage(ctx, driverID, url, msgType)
+				} else {
+					log.Printf("[driver.SendDriverMessage] Failed to upload voice: %v", err)
+				}
+			}
+
+			// 3. Forward File
+			if fPath != "" {
+				url, msgType, err := h.vendorClient.UploadMedia(ctx, driverID, fPath)
+				if err == nil {
+					h.vendorClient.ForwardMessage(ctx, driverID, url, msgType)
+				} else {
+					log.Printf("[driver.SendDriverMessage] Failed to upload file: %v", err)
+				}
+			}
+
+			// 4. Forward Text
+			if text != "" {
+				err := h.vendorClient.ForwardMessage(ctx, driverID, text, "TEXT")
+				if err != nil {
+					log.Printf("[driver.SendDriverMessage] Failed to forward text to vendor for driver %s: %v", driverID, err)
+				}
+			}
+		}(targetUserID, content, voicePath, photoPath, filePath)
 	} else if authUserType == "ADMIN" {
 		go func(driverID, text string) {
 			// Forward admin's reply content to the vendor as the business

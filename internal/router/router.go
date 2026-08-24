@@ -68,7 +68,7 @@ func New(db *pgxpool.Pool, cfg *config.Config) http.Handler {
 	// INITIALIZE HANDLERS
 	// ============================================================
 	healthHandler := handler.NewHealthHandler(db)
-	wsHandler := handler.NewWebSocketHandler(s, hub)
+	wsHandler := handler.NewWebSocketHandler(s, hub, cfg.HMACSecret)
 
 	// Customer Handlers (সঠিক ভেরিয়েবল ব্যবহার)
 	customerHistory := customer.NewHistoryHandler(s)
