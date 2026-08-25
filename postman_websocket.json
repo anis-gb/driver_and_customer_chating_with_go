@@ -1,0 +1,119 @@
+{
+  "info": {
+    "name": "WebSocket HMAC Test",
+    "_postman_id": "websocket-hmac-test",
+    "description": "Minimal Postman collection for testing WebSocket HMAC authentication.\n\n1. Import this JSON.\n2. Set collection variables:\n   - baseUrl: http://localhost:8080\n   - hmac_secret: your HMAC_SECRET from .env\n   - user_id: test user ID\n   - user_type: CUSTOMER, DRIVER, or ADMIN\n3. Click Send on Connect WebSocket.\n4. View Postman Console for debug output.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080",
+      "type": "string"
+    },
+    {
+      "key": "hmac_secret",
+      "value": "b9f3f1c8f0a74d4e9a2d8c1e7f6b5a3c_test_private",
+      "type": "string"
+    },
+    {
+      "key": "user_id",
+      "value": "customer-123",
+      "type": "string"
+    },
+    {
+      "key": "user_type",
+      "value": "CUSTOMER",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "WebSocket",
+      "item": [
+        {
+          "name": "Connect WebSocket",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "ws://localhost:8080/ws?user_id={{user_id}}&user_type={{user_type}}&timestamp={{ws_timestamp}}&nonce={{ws_nonce}}&signature={{ws_signature}}",
+              "protocol": "ws",
+              "host": ["localhost"],
+              "port": "8080",
+              "path": ["ws"],
+              "query": [
+                {
+                  "key": "user_id",
+                  "value": "{{user_id}}"
+                },
+                {
+                  "key": "user_type",
+                  "value": "{{user_type}}"
+                },
+                {
+                  "key": "timestamp",
+                  "value": "{{ws_timestamp}}"
+                },
+                {
+                  "key": "nonce",
+                  "value": "{{ws_nonce}}"
+                },
+                {
+                  "key": "signature",
+                  "value": "{{ws_signature}}"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "// Generate HMAC signed WebSocket URL params using native crypto",
+                  "const secret = pm.collectionVariables.get('hmac_secret');",
+                  "",
+                  "if (!secret) {",
+                  "    console.warn('HMAC secret is not set. Set collection variable \"hmac_secret\".');",
+                  "} else {",
+                  "    const timestamp = Math.floor(Date.now() / 1000).toString();",
+                  "    const nonceBytes = crypto.getRandomValues(new Uint8Array(16));",
+                  "    const nonce = Array.from(nonceBytes).map(b => b.toString(16).padStart(2, '0')).join('');",
+                  "    const path = '/ws';",
+                  "    const payload = `GET|${path}|${timestamp}|${nonce}`;",
+                  "",
+                  "    crypto.subtle.importKey(",
+                  "        'raw',",
+                  "        new TextEncoder().encode(secret),",
+                  "        { name: 'HMAC', hash: 'SHA-256' },",
+                  "        false,",
+                  "        ['sign']",
+                  "    ).then(key => crypto.subtle.sign('HMAC', key, new TextEncoder().encode(payload)))",
+                  "    .then(signatureBuffer => {",
+                  "        const signatureArray = new Uint8Array(signatureBuffer);",
+                  "        const signature = Array.from(signatureArray).map(b => b.toString(16).padStart(2, '0')).join('');",
+                  "",
+                  "        console.log('WS | Path:', path);",
+                  "        console.log('WS | Timestamp:', timestamp);",
+                  "        console.log('WS | Nonce:', nonce);",
+                  "        console.log('WS | Payload:', payload);",
+                  "        console.log('WS | Signature:', signature);",
+                  "",
+                  "        pm.collectionVariables.set('ws_timestamp', timestamp);",
+                  "        pm.collectionVariables.set('ws_nonce', nonce);",
+                  "        pm.collectionVariables.set('ws_signature', signature);",
+                  "    })",
+                  "    .catch(err => console.error('WS | Crypto error:', err));",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    }
+  ]
+}

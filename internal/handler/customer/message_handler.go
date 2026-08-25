@@ -30,6 +30,7 @@ var allowedFiles = map[string]map[string]string{
 		".aac": "AAC Audio",
 		".ogg": "OGG Audio",
 		".m4a": "M4A Audio",
+		".webm": "WebM Audio",
 	},
 	"photo": {
 		".jpg":  "JPEG Image",
