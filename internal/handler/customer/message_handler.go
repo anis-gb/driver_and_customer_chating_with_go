@@ -281,6 +281,11 @@ func (h *MessageHandler) SendCustomerMessage(w http.ResponseWriter, r *http.Requ
 		adminID = nil
 		authUserType = "CUSTOMER"
 
+		if userPhone == "" {
+			response.JSON(w, http.StatusBadRequest, "user_phone form field is required", nil)
+			return
+		}
+
 		// Start SSE listener for this customer
 		go h.customerSSE.StartCustomerSSEListener(targetUserID)
 
