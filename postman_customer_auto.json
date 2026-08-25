@@ -1,0 +1,351 @@
+{
+  "info": {
+    "name": "Customer Chat - One-Time WS + Auto HMAC",
+    "_postman_id": "customer-chat-onetime-ws",
+    "description": "Customer chat testing collection.\n\n## Setup\n1. Set collection variables: baseUrl, hmac_secret, user_id, user_type.\n2. Generate a fresh WebSocket URL with: go run generate_ws_url.go <user_id> <user_type>\n3. Paste that full URL into the WebSocket request.\n4. Click Send on WebSocket once to connect.\n5. Use HTTP requests below - HMAC headers auto-generate.\n\n## Notes\n- WebSocket timestamp is valid for ~5 minutes. If connection drops, regenerate URL.\n- HTTP requests auto-sign with fresh timestamp/nonce/signature every time.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080",
+      "type": "string"
+    },
+    {
+      "key": "hmac_secret",
+      "value": "b9f3f1c8f0a74d4e9a2d8c1e7f6b5a3c_test_private",
+      "type": "string"
+    },
+    {
+      "key": "user_id",
+      "value": "30",
+      "type": "string"
+    },
+    {
+      "key": "user_type",
+      "value": "CUSTOMER",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. WebSocket (One-Time Connect)",
+      "item": [
+        {
+          "name": "Connect WebSocket",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "ws://localhost:8080/ws?user_id={{user_id}}&user_type={{user_type}}&timestamp={{timestamp}}&nonce={{nonce}}&signature={{signature}}",
+              "protocol": "ws",
+              "host": ["localhost"],
+              "port": "8080",
+              "path": ["ws"],
+              "query": [
+                {
+                  "key": "user_id",
+                  "value": "{{user_id}}"
+                },
+                {
+                  "key": "user_type",
+                  "value": "{{user_type}}"
+                },
+                {
+                  "key": "timestamp",
+                  "value": "{{timestamp}}"
+                },
+                {
+                  "key": "nonce",
+                  "value": "{{nonce}}"
+                },
+                {
+                  "key": "signature",
+                  "value": "{{signature}}"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "// Dynamically build WebSocket URL with current user_id",
+                  "const secret = pm.collectionVariables.get('hmac_secret');",
+                  "const userId = pm.collectionVariables.get('user_id');",
+                  "const userType = pm.collectionVariables.get('user_type');",
+                  "",
+                  "if (!secret || !userId || !userType) {",
+                  "    console.warn('Missing: hmac_secret, user_id, or user_type');",
+                  "} else {",
+                  "    const timestamp = Math.floor(Date.now() / 1000).toString();",
+                  "    const nonceBytes = crypto.getRandomValues(new Uint8Array(16));",
+                  "    const nonce = Array.from(nonceBytes).map(b => b.toString(16).padStart(2, '0')).join('');",
+                  "    const path = '/ws';",
+                  "    const payload = `GET|${path}|${timestamp}|${nonce}`;",
+                  "",
+                  "    crypto.subtle.importKey(",
+                  "        'raw',",
+                  "        new TextEncoder().encode(secret),",
+                  "        { name: 'HMAC', hash: 'SHA-256' },",
+                  "        false,",
+                  "        ['sign']",
+                  "    ).then(key => crypto.subtle.sign('HMAC', key, new TextEncoder().encode(payload)))",
+                  "    .then(signatureBuffer => {",
+                  "        const signature = Array.from(new Uint8Array(signatureBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');",
+                  "        const wsUrl = `ws://localhost:8080/ws?user_id=${encodeURIComponent(userId)}&user_type=${encodeURIComponent(userType)}&timestamp=${timestamp}&nonce=${nonce}&signature=${signature}`;",
+                  "",
+                  "        console.log('WS URL:', wsUrl);",
+                  "",
+                  "        pm.collectionVariables.set('timestamp', timestamp);",
+                  "        pm.collectionVariables.set('nonce', nonce);",
+                  "        pm.collectionVariables.set('signature', signature);",
+                  "        pm.request.url.raw = wsUrl;",
+                  "    })",
+                  "    .catch(err => console.error('WS | Crypto error:', err));",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Regenerate WebSocket URL (Helper)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["health"]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "// Helper: updates ws timestamp/nonce/signature without opening WS",
+                  "const secret = pm.collectionVariables.get('hmac_secret');",
+                  "const userId = pm.collectionVariables.get('user_id');",
+                  "const userType = pm.collectionVariables.get('user_type');",
+                  "",
+                  "if (!secret || !userId || !userType) {",
+                  "    console.warn('Missing variables');",
+                  "} else {",
+                  "    const timestamp = Math.floor(Date.now() / 1000).toString();",
+                  "    const nonceBytes = crypto.getRandomValues(new Uint8Array(16));",
+                  "    const nonce = Array.from(nonceBytes).map(b => b.toString(16).padStart(2, '0')).join('');",
+                  "    const path = '/ws';",
+                  "    const payload = `GET|${path}|${timestamp}|${nonce}`;",
+                  "",
+                  "    crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])",
+                  "    .then(key => crypto.subtle.sign('HMAC', key, new TextEncoder().encode(payload)))",
+                  "    .then(signatureBuffer => {",
+                  "        const signature = Array.from(new Uint8Array(signatureBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');",
+                  "        pm.collectionVariables.set('timestamp', timestamp);",
+                  "        pm.collectionVariables.set('nonce', nonce);",
+                  "        pm.collectionVariables.set('signature', signature);",
+                  "        console.log('Refreshed WS params for user_id:', userId);",
+                  "    })",
+                  "    .catch(err => console.error('Crypto error:', err));",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "2. Customer Messages (Auto HMAC)",
+      "item": [
+        {
+          "name": "Send Customer Message",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "user_id",
+                  "value": "{{user_id}}"
+                },
+                {
+                  "key": "user_type",
+                  "value": "{{user_type}}"
+                },
+                {
+                  "key": "user_phone",
+                  "value": "+8801712345678"
+                },
+                {
+                  "key": "content",
+                  "value": "Hello from customer!"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/customer/messages",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "customer", "messages"]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "const secret = pm.collectionVariables.get('hmac_secret');",
+                  "if (!secret) {",
+                  "    console.warn('HMAC secret is not set.');",
+                  "} else {",
+                  "    const timestamp = Math.floor(Date.now() / 1000).toString();",
+                  "    const nonceBytes = crypto.getRandomValues(new Uint8Array(16));",
+                  "    const nonce = Array.from(nonceBytes).map(b => b.toString(16).padStart(2, '0')).join('');",
+                  "    const path = '/api/customer/messages';",
+                  "    const payload = `POST|${path}|${timestamp}|${nonce}`;",
+                  "    crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])",
+                  "    .then(key => crypto.subtle.sign('HMAC', key, new TextEncoder().encode(payload)))",
+                  "    .then(signatureBuffer => {",
+                  "        const signature = Array.from(new Uint8Array(signatureBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');",
+                  "        pm.request.headers.upsert({ key: 'X-Timestamp', value: timestamp });",
+                  "        pm.request.headers.upsert({ key: 'X-Nonce', value: nonce });",
+                  "        pm.request.headers.upsert({ key: 'X-Signature', value: signature });",
+                  "    })",
+                  "    .catch(err => console.error('HMAC error:', err));",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Get Customer Message History",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/customer/messages?user_id={{user_id}}&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "customer", "messages"],
+              "query": [
+                {
+                  "key": "user_id",
+                  "value": "{{user_id}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "const secret = pm.collectionVariables.get('hmac_secret');",
+                  "if (!secret) {",
+                  "    console.warn('HMAC secret is not set.');",
+                  "} else {",
+                  "    const timestamp = Math.floor(Date.now() / 1000).toString();",
+                  "    const nonceBytes = crypto.getRandomValues(new Uint8Array(16));",
+                  "    const nonce = Array.from(nonceBytes).map(b => b.toString(16).padStart(2, '0')).join('');",
+                  "    const path = '/api/customer/messages';",
+                  "    const payload = `GET|${path}|${timestamp}|${nonce}`;",
+                  "    crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])",
+                  "    .then(key => crypto.subtle.sign('HMAC', key, new TextEncoder().encode(payload)))",
+                  "    .then(signatureBuffer => {",
+                  "        const signature = Array.from(new Uint8Array(signatureBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');",
+                  "        pm.request.headers.upsert({ key: 'X-Timestamp', value: timestamp });",
+                  "        pm.request.headers.upsert({ key: 'X-Nonce', value: nonce });",
+                  "        pm.request.headers.upsert({ key: 'X-Signature', value: signature });",
+                  "    })",
+                  "    .catch(err => console.error('HMAC error:', err));",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Mark Customer Messages Seen",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "user_id",
+                  "value": "{{user_id}}"
+                },
+                {
+                  "key": "user_type",
+                  "value": "{{user_type}}"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/customer/messages/seen",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "customer", "messages", "seen"]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "const secret = pm.collectionVariables.get('hmac_secret');",
+                  "if (!secret) {",
+                  "    console.warn('HMAC secret is not set.');",
+                  "} else {",
+                  "    const timestamp = Math.floor(Date.now() / 1000).toString();",
+                  "    const nonceBytes = crypto.getRandomValues(new Uint8Array(16));",
+                  "    const nonce = Array.from(nonceBytes).map(b => b.toString(16).padStart(2, '0')).join('');",
+                  "    const path = '/api/customer/messages/seen';",
+                  "    const payload = `POST|${path}|${timestamp}|${nonce}`;",
+                  "    crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])",
+                  "    .then(key => crypto.subtle.sign('HMAC', key, new TextEncoder().encode(payload)))",
+                  "    .then(signatureBuffer => {",
+                  "        const signature = Array.from(new Uint8Array(signatureBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');",
+                  "        pm.request.headers.upsert({ key: 'X-Timestamp', value: timestamp });",
+                  "        pm.request.headers.upsert({ key: 'X-Nonce', value: nonce });",
+                  "        pm.request.headers.upsert({ key: 'X-Signature', value: signature });",
+                  "    })",
+                  "    .catch(err => console.error('HMAC error:', err));",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    }
+  ]
+}
