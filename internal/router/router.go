@@ -42,27 +42,56 @@ func New(db *pgxpool.Pool, cfg *config.Config) http.Handler {
 	})
 
 	// Initialize Store and Hub
-	s := store.NewStore(db)
+	s := store.NewStore(db) // <-- সঠিক নাম `s`
 	hub := socket.NewHub(s)
 	go hub.Run()
 
+	// ============================================================
+	// INITIALIZE VENDOR CLIENTS
+	// ============================================================
+	// Driver Vendor Client
+	driverVendorClient := vendor.NewVendorClient(cfg.VendorChatAPIURL, cfg.VendorSecretKey)
 
-	// Initialize vendor clients and background stream managers
-	vc := vendor.NewVendorClient(cfg.VendorChatAPIURL, cfg.VendorSecretKey)
-	sse := vendor.NewSSEManager(vc, s, hub)
+	// Customer Vendor Client
+	customerVendorClient := vendor.NewCustomerClient(cfg.VendorChatAPIURL, cfg.VendorSecretKey)
 
+	// ============================================================
+	// INITIALIZE SSE MANAGERS
+	// ============================================================
+	// Driver SSE Manager
+	driverSSE := vendor.NewSSEManager(driverVendorClient, s, hub)
+
+	// Customer SSE Manager
+	customerSSE := vendor.NewCustomerSSEManager(customerVendorClient, s, hub)
+
+	// ============================================================
+	// INITIALIZE HANDLERS
+	// ============================================================
 	healthHandler := handler.NewHealthHandler(db)
 	wsHandler := handler.NewWebSocketHandler(s, hub, cfg.HMACSecret)
 
+	// Customer Handlers (সঠিক ভেরিয়েবল ব্যবহার)
 	customerHistory := customer.NewHistoryHandler(s)
-	customerMessage := customer.NewMessageHandler(s, hub)
+	customerHandler := customer.NewMessageHandler(
+		s,                    // store
+		hub,                  // hub
+		customerVendorClient, // customerClient
+		customerSSE,          // customerSSE
+		cfg.BaseURL,          // baseURL
+	)
 
-	driverHistory := driver.NewHistoryHandler(s, sse)
-	driverMessage := driver.NewMessageHandler(s, hub, vc, sse)
+	// Driver Handlers
+	driverHistory := driver.NewHistoryHandler(s, driverSSE)
+	driverMessage := driver.NewMessageHandler(s, hub, driverVendorClient, driverSSE)
 
+	// Admin Handler
 	adminHandler := admin.NewAdminHandler(s)
 
-	// Health Check Endpoint (checks service and PostgreSQL connection)
+	// ============================================================
+	// PUBLIC ENDPOINTS
+	// ============================================================
+
+	// Health Check
 	r.Get("/health", healthHandler.Health)
 	r.Get("/api/health", healthHandler.Health)
 
@@ -72,16 +101,20 @@ func New(db *pgxpool.Pool, cfg *config.Config) http.Handler {
 	// WebSocket Endpoint
 	r.Get("/ws", wsHandler.ServeWS)
 
-	// Customer Chat Endpoints — protected by HMAC
+	// ============================================================
+	// CUSTOMER CHAT ENDPOINTS (Protected by HMAC)
+	// ============================================================
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.HMACAuth(cfg.HMACSecret))
 		r.Get("/api/customer/messages", customerHistory.GetCustomerHistory)
-		r.Post("/api/customer/messages", customerMessage.SendCustomerMessage)
-		r.Post("/api/customer/messages/seen", customerMessage.MarkCustomerMessagesSeen)
-		r.Patch("/api/customer/messages/{id}", customerMessage.EditCustomerMessage)
+		r.Post("/api/customer/messages", customerHandler.SendCustomerMessage)           // <-- customerHandler
+		r.Post("/api/customer/messages/seen", customerHandler.MarkCustomerMessagesSeen) // <-- customerHandler
+		r.Patch("/api/customer/messages/{id}", customerHandler.EditCustomerMessage)     // <-- customerHandler
 	})
 
-	// Driver Chat Endpoints — protected by HMAC
+	// ============================================================
+	// DRIVER CHAT ENDPOINTS (Protected by HMAC)
+	// ============================================================
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.HMACAuth(cfg.HMACSecret))
 		r.Get("/api/driver/messages", driverHistory.GetDriverHistory)
@@ -90,7 +123,9 @@ func New(db *pgxpool.Pool, cfg *config.Config) http.Handler {
 		r.Patch("/api/driver/messages/{id}", driverMessage.EditDriverMessage)
 	})
 
-	// Admin Endpoints — protected by HMAC
+	// ============================================================
+	// ADMIN ENDPOINTS (Protected by HMAC)
+	// ============================================================
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.HMACAuth(cfg.HMACSecret))
 		r.Get("/api/admin/conversations", adminHandler.GetConversations)

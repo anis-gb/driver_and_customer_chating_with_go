@@ -9,12 +9,13 @@ import (
 
 // Config holds all application configuration values.
 type Config struct {
-	Port        string
-	DatabaseURL string
-	Env         string
-	HMACSecret  string
+	Port             string
+	DatabaseURL      string
+	Env              string
+	HMACSecret       string
 	VendorChatAPIURL string
 	VendorSecretKey  string
+	BaseURL          string // নতুন ফিল্ড – পাবলিক URL (যেমন: https://api.yourdomain.com)
 }
 
 // Load reads configuration from a .env file (if present) and environment
@@ -31,6 +32,7 @@ func Load() *Config {
 		HMACSecret:       getEnv("HMAC_SECRET", "b9f3f1c8f0a74d4e9a2d8c1e7f6b5a3c_test_private"),
 		VendorChatAPIURL: getEnv("VENDOR_CHAT_API_URL", "https://fastcom.ascendai.site/app/api/v1/chat"),
 		VendorSecretKey:  getEnv("VENDOR_SECRET_KEY", "sk_live_test_secret_key"),
+		BaseURL:          getEnv("BASE_URL", "http://localhost:8080"),
 	}
 
 	return cfg
