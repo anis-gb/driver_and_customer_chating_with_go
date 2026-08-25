@@ -164,7 +164,7 @@ func (h *MessageHandler) SendDriverMessage(w http.ResponseWriter, r *http.Reques
 
 			// 1. Forward Photo
 			if pPath != "" {
-				url, msgType, err := h.vendorClient.UploadMedia(ctx, driverID, pPath)
+				url, msgType, err := h.vendorClient.UploadMedia(ctx, driverID, "."+pPath)
 				if err == nil {
 					h.vendorClient.ForwardMessage(ctx, driverID, url, msgType)
 				} else {
@@ -174,7 +174,7 @@ func (h *MessageHandler) SendDriverMessage(w http.ResponseWriter, r *http.Reques
 
 			// 2. Forward Voice
 			if vPath != "" {
-				url, msgType, err := h.vendorClient.UploadMedia(ctx, driverID, vPath)
+				url, msgType, err := h.vendorClient.UploadMedia(ctx, driverID, "."+vPath)
 				if err == nil {
 					h.vendorClient.ForwardMessage(ctx, driverID, url, msgType)
 				} else {
@@ -184,7 +184,7 @@ func (h *MessageHandler) SendDriverMessage(w http.ResponseWriter, r *http.Reques
 
 			// 3. Forward File
 			if fPath != "" {
-				url, msgType, err := h.vendorClient.UploadMedia(ctx, driverID, fPath)
+				url, msgType, err := h.vendorClient.UploadMedia(ctx, driverID, "."+fPath)
 				if err == nil {
 					h.vendorClient.ForwardMessage(ctx, driverID, url, msgType)
 				} else {
