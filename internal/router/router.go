@@ -42,7 +42,7 @@ func New(db *pgxpool.Pool, cfg *config.Config) http.Handler {
 	})
 
 	// Initialize Store and Hub
-	s := store.NewStore(db) // <-- সঠিক নাম `s`
+	s := store.NewStore(db)
 	hub := socket.NewHub(s)
 	go hub.Run()
 
@@ -70,7 +70,7 @@ func New(db *pgxpool.Pool, cfg *config.Config) http.Handler {
 	healthHandler := handler.NewHealthHandler(db)
 	wsHandler := handler.NewWebSocketHandler(s, hub, cfg.HMACSecret)
 
-	// Customer Handlers (সঠিক ভেরিয়েবল ব্যবহার)
+	// Customer Handlers
 	customerHistory := customer.NewHistoryHandler(s)
 	customerHandler := customer.NewMessageHandler(
 		s,                    // store

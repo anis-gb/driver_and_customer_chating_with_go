@@ -16,7 +16,7 @@ var upgrader = websocket.Upgrader{
 	WriteBufferSize: 1024,
 	CheckOrigin: func(r *http.Request) bool {
 		// In production, you should check r.Header.Get("Origin") against allowed domains.
-		return true 
+		return true
 	},
 }
 
