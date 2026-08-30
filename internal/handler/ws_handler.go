@@ -38,24 +38,7 @@ func NewWebSocketHandler(s *store.Store, h *socket.Hub, secret string) *WebSocke
 
 // ServeWS upgrades the connection and registers the client in the hub.
 func (h *WebSocketHandler) ServeWS(w http.ResponseWriter, r *http.Request) {
-	// 1. Extract authentication parameters from query string
-	tsStr := r.URL.Query().Get("timestamp")
-	nonce := r.URL.Query().Get("nonce")
-	signature := r.URL.Query().Get("signature")
-
-	if tsStr == "" || nonce == "" || signature == "" {
-		response.JSON(w, http.StatusUnauthorized, "missing authentication parameters (timestamp, nonce, signature)", nil)
-		return
-	}
-
-	// Validate the HMAC signature and nonce
-	err := middleware.ValidateHMAC(r.Method, r.URL.Path, tsStr, nonce, signature, h.secret)
-	if err != nil {
-		response.JSON(w, http.StatusUnauthorized, err.Error(), nil)
-		return
-	}
-
-	// 2. Extract user identifiers
+	// 1. Extract user identifiers
 	userID := r.URL.Query().Get("user_id")
 	if userID == "" {
 		response.JSON(w, http.StatusBadRequest, "user_id query parameter is required", nil)
@@ -65,6 +48,32 @@ func (h *WebSocketHandler) ServeWS(w http.ResponseWriter, r *http.Request) {
 	userType := r.URL.Query().Get("user_type")
 	if userType == "" {
 		response.JSON(w, http.StatusBadRequest, "user_type query parameter is required", nil)
+		return
+	}
+
+	// 2. Extract authentication parameters from query string
+	tsStr := r.URL.Query().Get("timestamp")
+	if tsStr == "" {
+		tsStr = r.URL.Query().Get("current_timestamp")
+	}
+	nonce := r.URL.Query().Get("nonce")
+	if nonce == "" {
+		nonce = r.URL.Query().Get("current_nonce")
+	}
+	signature := r.URL.Query().Get("signature")
+	if signature == "" {
+		signature = r.URL.Query().Get("current_signature")
+	}
+
+	// Validate HMAC signature if provided, or enforce for non-ADMIN connections
+	if tsStr != "" || nonce != "" || signature != "" {
+		err := middleware.ValidateHMAC(r.Method, r.URL.Path, tsStr, nonce, signature, h.secret)
+		if err != nil {
+			response.JSON(w, http.StatusUnauthorized, err.Error(), nil)
+			return
+		}
+	} else if userType != "ADMIN" {
+		response.JSON(w, http.StatusUnauthorized, "missing authentication parameters (timestamp, nonce, signature)", nil)
 		return
 	}
 
