@@ -25,11 +25,11 @@ import (
 // Allowed file extensions and their descriptions
 var allowedFiles = map[string]map[string]string{
 	"voice": {
-		".mp3": "MP3 Audio",
-		".wav": "WAV Audio",
-		".aac": "AAC Audio",
-		".ogg": "OGG Audio",
-		".m4a": "M4A Audio",
+		".mp3":  "MP3 Audio",
+		".wav":  "WAV Audio",
+		".aac":  "AAC Audio",
+		".ogg":  "OGG Audio",
+		".m4a":  "M4A Audio",
 		".webm": "WebM Audio",
 	},
 	"photo": {
@@ -267,7 +267,7 @@ func (h *MessageHandler) SendCustomerMessage(w http.ResponseWriter, r *http.Requ
 	profilePicture := r.FormValue("profile_picture")
 	gender := r.FormValue("gender")
 
-	var targetUserID string
+	var targetUserID string // internal user ID (original, without prefix)
 	var adminID *string
 
 	if authUserType == "ADMIN" {
@@ -287,18 +287,21 @@ func (h *MessageHandler) SendCustomerMessage(w http.ResponseWriter, r *http.Requ
 			return
 		}
 
-		// Start SSE listener for this customer
-		go h.customerSSE.StartCustomerSSEListener(targetUserID)
+		// 🔥 তৈরি করুন vendor-এর জন্য prefixed ID
+		vendorUserID := utils.GetVendorUserID("customer", targetUserID)
 
-		// Enable bot and forward message asynchronously (existing logic)
+		// Start SSE listener (vendorUserID দিয়ে)
+		go h.customerSSE.StartCustomerSSEListener(vendorUserID)
+
+		// Enable bot and forward message asynchronously (vendorUserID ব্যবহার)
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 
-			if err := h.customerClient.ToggleVendorBot(ctx, targetUserID, true); err != nil {
-				log.Printf("[CustomerMessage] Failed to enable bot for %s: %v", targetUserID, err)
+			if err := h.customerClient.ToggleVendorBot(ctx, vendorUserID, true); err != nil {
+				log.Printf("[CustomerMessage] Failed to enable bot for %s: %v", vendorUserID, err)
 			} else {
-				log.Printf("[CustomerMessage] Bot enabled for customer %s", targetUserID)
+				log.Printf("[CustomerMessage] Bot enabled for customer %s", vendorUserID)
 			}
 
 			var mediaType, mediaURL string
@@ -315,19 +318,19 @@ func (h *MessageHandler) SendCustomerMessage(w http.ResponseWriter, r *http.Requ
 
 			var forwardErr error
 			if mediaType != "" && mediaURL != "" {
-				forwardErr = h.customerClient.ForwardMessageWithMedia(ctx, targetUserID, content, mediaType, mediaURL)
+				forwardErr = h.customerClient.ForwardMessageWithMedia(ctx, vendorUserID, content, mediaType, mediaURL)
 			} else if content != "" {
-				forwardErr = h.customerClient.ForwardMessage(ctx, targetUserID, content)
+				forwardErr = h.customerClient.ForwardMessage(ctx, vendorUserID, content)
 			}
 			if forwardErr != nil {
 				log.Printf("[CustomerMessage] Failed to forward message to vendor: %v", forwardErr)
 			} else {
-				log.Printf("[CustomerMessage] Message forwarded to vendor for customer %s", targetUserID)
+				log.Printf("[CustomerMessage] Message forwarded to vendor for customer %s", vendorUserID)
 			}
 		}()
 	}
 
-	// Persist the message
+	// Persist the message (targetUserID original)
 	msg, err := h.store.InsertCustomerMessage(r.Context(), targetUserID, adminID, authUserType, content, voicePath, photoPath, filePath, userPhone, fullName, profilePicture, gender)
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, "failed to save message", nil)
@@ -367,10 +370,11 @@ func (h *MessageHandler) SendCustomerMessage(w http.ResponseWriter, r *http.Requ
 	}
 	h.hub.BroadcastMessage(outgoingMsg)
 
-	// NEW: Admin reply forwarding (like driver)
+	// 🔥 Admin reply forwarding (এখানেও vendorUserID ব্যবহার)
 	if authUserType == "ADMIN" {
 		go func(customerID, text string) {
-			vendorMsgID, err := h.customerClient.ForwardAgentReply(context.Background(), customerID, text)
+			vendorUserID := utils.GetVendorUserID("customer", customerID)
+			vendorMsgID, err := h.customerClient.ForwardAgentReply(context.Background(), vendorUserID, text)
 			if err != nil {
 				log.Printf("[CustomerMessage] Failed to forward agent reply to vendor for customer %s: %v", customerID, err)
 				return

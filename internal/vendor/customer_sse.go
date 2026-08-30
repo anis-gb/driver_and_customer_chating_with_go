@@ -1,4 +1,3 @@
-// vendor/customer_sse.go
 package vendor
 
 import (
@@ -15,6 +14,7 @@ import (
 
 	"github.com/yourusername/go-starter/internal/socket"
 	"github.com/yourusername/go-starter/internal/store"
+	"github.com/yourusername/go-starter/internal/utils" // ← যোগ করুন
 )
 
 // CustomerSSEManager manages SSE connections for customers
@@ -83,6 +83,7 @@ func (sm *CustomerSSEManager) startDeduplicationCleanup() {
 // ============================================================
 
 // StartCustomerSSEListener starts a background listener for the specified customer if not already running.
+// customerID should be prefixed (e.g., "customer_1")
 func (sm *CustomerSSEManager) StartCustomerSSEListener(customerID string) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
@@ -185,13 +186,13 @@ func (sm *CustomerSSEManager) listenLoop(ctx context.Context, customerID string)
 }
 
 func (sm *CustomerSSEManager) readStream(ctx context.Context, customerID string) error {
-	// Get session token for customer
+	// Get session token for customer (customerID is prefixed, which vendor expects)
 	token, err := sm.customerClient.GetSessionToken(ctx, customerID)
 	if err != nil {
 		return fmt.Errorf("failed to get customer session token: %w", err)
 	}
 
-	// Build stream URL with token (query param is optional but kept for compatibility)
+	// Build stream URL with token
 	url := fmt.Sprintf("%s/stream?token=%s", sm.customerClient.apiURL, token)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
@@ -203,7 +204,6 @@ func (sm *CustomerSSEManager) readStream(ctx context.Context, customerID string)
 	req.Header.Set("Accept", "text/event-stream")
 	req.Header.Set("Cache-Control", "no-cache")
 	req.Header.Set("Connection", "keep-alive")
-	// ✅ Use the session token, not the secret key
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
 
 	// Make the request
@@ -276,8 +276,17 @@ func (sm *CustomerSSEManager) readStream(ctx context.Context, customerID string)
 	}
 }
 
+// processCustomerMessage processes an incoming admin/bot reply from vendor and saves it to DB
 func (sm *CustomerSSEManager) processCustomerMessage(ctx context.Context, customerID string, event CustomerSSEEvent) {
 	log.Printf("[CustomerSSEManager] Processing admin message for customer %s: %s", customerID, event.Content)
+
+	// 🔥 customerID is prefixed (e.g., "customer_1") – parse to get original ID
+	_, originalID := utils.ParseVendorUserID(customerID)
+	if originalID == "" {
+		log.Printf("[CustomerSSEManager] Invalid customer ID format: %s", customerID)
+		return
+	}
+	log.Printf("[CustomerSSEManager] Parsed original customer ID: %s", originalID)
 
 	// Extract media URLs if present
 	var voicePath, photoPath, filePath string
@@ -304,10 +313,10 @@ func (sm *CustomerSSEManager) processCustomerMessage(ctx context.Context, custom
 		senderName = event.SenderName
 	}
 
-	// Save message to database
+	// Save message to database using originalID (without prefix)
 	msg, err := sm.dbStore.InsertCustomerMessage(
 		ctx,
-		customerID,
+		originalID, // ← original customer ID
 		&adminID,
 		sendedBy,
 		event.Content,
@@ -324,13 +333,13 @@ func (sm *CustomerSSEManager) processCustomerMessage(ctx context.Context, custom
 		return
 	}
 
-	log.Printf("[CustomerSSEManager] Successfully saved message %s for customer %s", msg.ID, customerID)
+	log.Printf("[CustomerSSEManager] Successfully saved message %s for customer %s (original ID: %s)", msg.ID, customerID, originalID)
 
 	// Broadcast to WebSocket Hub
 	outgoingMsg := store.OutgoingMessage{
 		Type:           "NEW_MESSAGE",
 		ID:             msg.ID,
-		UserID:         msg.UserID,
+		UserID:         msg.UserID, // original ID from DB
 		AdminID:        msg.AdminID,
 		SendedBy:       msg.SendedBy,
 		SenderName:     senderName,

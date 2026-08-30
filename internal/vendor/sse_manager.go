@@ -14,16 +14,17 @@ import (
 
 	"github.com/yourusername/go-starter/internal/socket"
 	"github.com/yourusername/go-starter/internal/store"
+	"github.com/yourusername/go-starter/internal/utils" // 🔥 ইম্পোর্ট যোগ করুন
 )
 
 type SSEManager struct {
-	vendorClient *VendorClient
-	dbStore      *store.Store
-	hub          *socket.Hub
-	listeners    map[string]context.CancelFunc
+	vendorClient  *VendorClient
+	dbStore       *store.Store
+	hub           *socket.Hub
+	listeners     map[string]context.CancelFunc
 	processedMsgs map[string]time.Time
-	streamClient *http.Client
-	mu           sync.Mutex
+	streamClient  *http.Client
+	mu            sync.Mutex
 }
 
 type SSEEvent struct {
@@ -44,13 +45,11 @@ func NewSSEManager(vc *VendorClient, s *store.Store, hub *socket.Hub) *SSEManage
 		listeners:     make(map[string]context.CancelFunc),
 		processedMsgs: make(map[string]time.Time),
 		streamClient: &http.Client{
-			Timeout: 0, // Infinite timeout for SSE streaming
+			Timeout: 0,
 		},
 	}
 
-	// Periodically clean up the deduplication map (keys older than 10 minutes)
 	go manager.startDeduplicationCleanup()
-
 	return manager
 }
 
@@ -68,13 +67,13 @@ func (sm *SSEManager) startDeduplicationCleanup() {
 	}
 }
 
-// StartSSEListener starts a background listener for the specified driver if not already running.
+// StartSSEListener starts a background listener for the specified driver.
+// driverID here is prefixed (e.g., "driver_1")
 func (sm *SSEManager) StartSSEListener(driverID string) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
 	if _, exists := sm.listeners[driverID]; exists {
-		// Listener already active for this driver
 		return
 	}
 
@@ -85,7 +84,6 @@ func (sm *SSEManager) StartSSEListener(driverID string) {
 	log.Printf("[SSEManager] Started background SSE listener for driver %s", driverID)
 }
 
-// StopSSEListener stops the background listener for the specified driver.
 func (sm *SSEManager) StopSSEListener(driverID string) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
@@ -131,7 +129,6 @@ func (sm *SSEManager) listenLoop(ctx context.Context, driverID string) {
 		case <-ctx.Done():
 			return
 		case <-time.After(backoff):
-			// Exponential backoff
 			backoff *= 2
 			if backoff > maxBackoff {
 				backoff = maxBackoff
@@ -146,7 +143,6 @@ func (sm *SSEManager) readStream(ctx context.Context, driverID string) error {
 		return fmt.Errorf("failed to get token for stream: %w", err)
 	}
 
-	// Use query parameter as per documentation for EventSource clients
 	url := fmt.Sprintf("%s/stream?token=%s", sm.vendorClient.apiURL, token)
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
@@ -199,20 +195,20 @@ func (sm *SSEManager) readStream(ctx context.Context, driverID string) error {
 				continue
 			}
 
-			// We are only interested in events that represent messages sent by the business/bot (isFromPage == true)
 			if event.Type == "message" && event.IsFromPage {
-				// Deduplicate using message ID
 				if sm.isDuplicate(event.MessageID) {
 					continue
 				}
 
 				log.Printf("[SSEManager] Received business reply for driver %s: %s", driverID, event.Content)
 
-				// Save message in PostgreSQL database
-				adminID := "SYSTEM_AI"
-				sendedBy := "ADMIN"
-				
-				// Optional: extract photo, file, or audio if the vendor returns a media URL
+				// 🔥 driverID prefixed – original ID বের করুন
+				_, originalID := utils.ParseVendorUserID(driverID)
+				if originalID == "" {
+					log.Printf("[SSEManager] Invalid driver ID format: %s", driverID)
+					continue
+				}
+
 				var voicePath, photoPath, filePath string
 				if event.MessageType == "IMAGE" {
 					photoPath = event.Content
@@ -222,9 +218,12 @@ func (sm *SSEManager) readStream(ctx context.Context, driverID string) error {
 					filePath = event.Content
 				}
 
+				adminID := "SYSTEM_AI"
+				sendedBy := "ADMIN"
+
 				msg, err := sm.dbStore.InsertDriverMessage(
 					ctx,
-					driverID,
+					originalID, // original user ID
 					&adminID,
 					sendedBy,
 					event.Content,
@@ -232,23 +231,22 @@ func (sm *SSEManager) readStream(ctx context.Context, driverID string) error {
 					photoPath,
 					filePath,
 					"", // userPhone
-					"Support AI", // fullName
-					"", // profilePicture
-					"", // gender
+					"Support AI",
+					"",
+					"",
 				)
 				if err != nil {
 					log.Printf("[SSEManager] Failed to save business message to database: %v", err)
 					continue
 				}
 
-				// Broadcast to WebSocket Hub
 				outgoingMsg := store.OutgoingMessage{
 					Type:           "NEW_MESSAGE",
 					ID:             msg.ID,
 					UserID:         msg.UserID,
 					AdminID:        msg.AdminID,
 					SendedBy:       msg.SendedBy,
-					SenderName:     "Support Admin", // show as Support Admin to match client expectation
+					SenderName:     "Support Admin",
 					Content:        msg.Content,
 					Seen:           msg.Seen,
 					VoiceMessages:  msg.VoiceMessages,
@@ -266,7 +264,6 @@ func (sm *SSEManager) readStream(ctx context.Context, driverID string) error {
 	}
 }
 
-// AddProcessedMessage adds a vendor message ID to the deduplication map.
 func (sm *SSEManager) AddProcessedMessage(msgID string) {
 	if msgID == "" {
 		return
@@ -275,4 +272,3 @@ func (sm *SSEManager) AddProcessedMessage(msgID string) {
 	defer sm.mu.Unlock()
 	sm.processedMsgs[msgID] = time.Now()
 }
-
