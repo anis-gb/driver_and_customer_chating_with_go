@@ -49,8 +49,17 @@ func HMACAuth(secret string) func(http.Handler) http.Handler {
 			}
 
 			tsStr := r.Header.Get("current_timestamp")
+			if tsStr == "" {
+				tsStr = r.Header.Get("X-Timestamp")
+			}
 			nonce := r.Header.Get("current_nonce")
+			if nonce == "" {
+				nonce = r.Header.Get("X-Nonce")
+			}
 			signature := r.Header.Get("current_signature")
+			if signature == "" {
+				signature = r.Header.Get("X-Signature")
+			}
 
 			err := ValidateHMAC(r.Method, r.URL.Path, tsStr, nonce, signature, secret)
 			if err != nil {
@@ -66,7 +75,7 @@ func HMACAuth(secret string) func(http.Handler) http.Handler {
 // ValidateHMAC exposes the signature validation and nonce-checking logic for non-middleware usage (e.g., WebSockets).
 func ValidateHMAC(method, uri, tsStr, nonce, signature, secret string) error {
 	if tsStr == "" || nonce == "" || signature == "" {
-		return fmt.Errorf("missing HMAC authentication headers (current_timestamp, current_nonce, current_signature)")
+		return fmt.Errorf("missing HMAC authentication headers (X-Timestamp / current_timestamp, X-Nonce / current_nonce, X-Signature / current_signature)")
 	}
 
 	ts, err := strconv.ParseInt(tsStr, 10, 64)
