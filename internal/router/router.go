@@ -32,7 +32,7 @@ func New(db *pgxpool.Pool, cfg *config.Config) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Access-Control-Allow-Origin", "*")
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Timestamp, X-Nonce, X-Signature")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, current_timestamp, current_nonce, current_signature")
 			if r.Method == "OPTIONS" {
 				w.WriteHeader(http.StatusOK)
 				return
@@ -42,7 +42,7 @@ func New(db *pgxpool.Pool, cfg *config.Config) http.Handler {
 	})
 
 	// Initialize Store and Hub
-	s := store.NewStore(db) // <-- সঠিক নাম `s`
+	s := store.NewStore(db)
 	hub := socket.NewHub(s)
 	go hub.Run()
 
@@ -70,7 +70,7 @@ func New(db *pgxpool.Pool, cfg *config.Config) http.Handler {
 	healthHandler := handler.NewHealthHandler(db)
 	wsHandler := handler.NewWebSocketHandler(s, hub, cfg.HMACSecret)
 
-	// Customer Handlers (সঠিক ভেরিয়েবল ব্যবহার)
+	// Customer Handlers
 	customerHistory := customer.NewHistoryHandler(s)
 	customerHandler := customer.NewMessageHandler(
 		s,                    // store
