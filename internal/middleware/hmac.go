@@ -98,13 +98,19 @@ func ValidateHMAC(method, uri, tsStr, nonce, signature, secret string) error {
 	mac.Write([]byte(payload))
 	expected := hex.EncodeToString(mac.Sum(nil))
 
-	// Format 2: Generic HMAC-SHA256("{method}|/|{timestamp}|{nonce}", secret) - Laravel HmacAuth default
+	// Format 2: Generic HMAC-SHA256("{method}|/|{timestamp}|{nonce}", secret)
 	payloadGeneric := method + "|/|" + tsStr + "|" + nonce
 	macGeneric := hmac.New(sha256.New, []byte(secret))
 	macGeneric.Write([]byte(payloadGeneric))
 	expectedGeneric := hex.EncodeToString(macGeneric.Sum(nil))
 
-	// Format 3: Legacy HMAC-SHA256("{timestamp}|{nonce}", secret)
+	// Format 3: GET|/|{timestamp}|{nonce} - Fallback when default GET token is sent with POST/PATCH
+	payloadDefaultGet := "GET|/|" + tsStr + "|" + nonce
+	macDefaultGet := hmac.New(sha256.New, []byte(secret))
+	macDefaultGet.Write([]byte(payloadDefaultGet))
+	expectedDefaultGet := hex.EncodeToString(macDefaultGet.Sum(nil))
+
+	// Format 4: Legacy HMAC-SHA256("{timestamp}|{nonce}", secret)
 	payloadLegacy := tsStr + "|" + nonce
 	macLegacy := hmac.New(sha256.New, []byte(secret))
 	macLegacy.Write([]byte(payloadLegacy))
@@ -120,6 +126,7 @@ func ValidateHMAC(method, uri, tsStr, nonce, signature, secret string) error {
 	// Constant-time comparison to prevent timing attacks
 	if !hmac.Equal([]byte(expected), []byte(signature)) &&
 		!hmac.Equal([]byte(expectedGeneric), []byte(signature)) &&
+		!hmac.Equal([]byte(expectedDefaultGet), []byte(signature)) &&
 		!hmac.Equal([]byte(expectedLegacy), []byte(signature)) {
 		return fmt.Errorf("invalid HMAC signature")
 	}
