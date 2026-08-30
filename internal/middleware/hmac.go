@@ -33,9 +33,10 @@ func init() {
 
 // HMACAuth returns a middleware that validates HMAC-SHA256 request signatures.
 // Every protected request must include three headers:
-//   X-Timestamp : Unix timestamp (seconds) when the request was signed
-//   X-Nonce     : Random hex string (used once per request)
-//   X-Signature : hex(HMAC-SHA256("{method}|{uri}|{timestamp}|{nonce}", secret))
+//
+//	current_timestamp : Unix timestamp (seconds) when the request was signed
+//	current_nonce     : Random hex string (used once per request)
+//	current_signature : hex(HMAC-SHA256("{method}|{uri}|{timestamp}|{nonce}", secret))
 //
 // Requests older than 5 minutes or reusing a nonce are rejected to prevent replay attacks.
 func HMACAuth(secret string) func(http.Handler) http.Handler {
@@ -47,9 +48,9 @@ func HMACAuth(secret string) func(http.Handler) http.Handler {
 				return
 			}
 
-			tsStr := r.Header.Get("X-Timestamp")
-			nonce := r.Header.Get("X-Nonce")
-			signature := r.Header.Get("X-Signature")
+			tsStr := r.Header.Get("current_timestamp")
+			nonce := r.Header.Get("current_nonce")
+			signature := r.Header.Get("current_signature")
 
 			err := ValidateHMAC(r.Method, r.URL.Path, tsStr, nonce, signature, secret)
 			if err != nil {
@@ -65,12 +66,12 @@ func HMACAuth(secret string) func(http.Handler) http.Handler {
 // ValidateHMAC exposes the signature validation and nonce-checking logic for non-middleware usage (e.g., WebSockets).
 func ValidateHMAC(method, uri, tsStr, nonce, signature, secret string) error {
 	if tsStr == "" || nonce == "" || signature == "" {
-		return fmt.Errorf("missing HMAC authentication headers (X-Timestamp, X-Nonce, X-Signature)")
+		return fmt.Errorf("missing HMAC authentication headers (current_timestamp, current_nonce, current_signature)")
 	}
 
 	ts, err := strconv.ParseInt(tsStr, 10, 64)
 	if err != nil {
-		return fmt.Errorf("invalid X-Timestamp header")
+		return fmt.Errorf("invalid current_timestamp header")
 	}
 
 	requestTime := time.Unix(ts, 0)

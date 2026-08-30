@@ -11,9 +11,34 @@ import (
 // InsertCustomerMessage stores a customer chat message in PostgreSQL.
 func (s *Store) InsertCustomerMessage(ctx context.Context, userID string, adminID *string, sendedBy string, content string, voice string, photo string, file string, userPhone string, fullName string, profilePicture string, gender string) (*Message, error) {
 	query := `
-		INSERT INTO customer_messages (user_id, admin_id, sended_by, content, voice_messages, photo, file, user_phone, full_name, profile_picture, gender)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-		RETURNING id, user_id, admin_id, sended_by, content, seen, COALESCE(voice_messages, ''), COALESCE(photo, ''), COALESCE(file, ''), COALESCE(user_phone, ''), COALESCE(full_name, ''), COALESCE(profile_picture, ''), COALESCE(gender, ''), created_at, updated_at`
+		INSERT INTO customer_messages (
+			user_id,
+			admin_id, 
+			sended_by, 
+			content, 
+			voice_messages, 
+			photo, file, 
+			user_phone, 
+			full_name, 
+			profile_picture, 
+			gender
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)RETURNING 
+			id, 
+			user_id, 
+			admin_id, 
+			sended_by, 
+			content, 
+			seen, 
+			COALESCE(voice_messages, ''), 
+			COALESCE(photo, ''), 
+			COALESCE(file, ''), 
+			COALESCE(user_phone, ''), 
+			COALESCE(full_name, ''), 
+			COALESCE(profile_picture, ''), 
+			COALESCE(gender, ''), 
+			created_at, 
+			updated_at`
 
 	msg := &Message{}
 	err := s.db.QueryRow(ctx, query, userID, adminID, sendedBy, content, voice, photo, file, userPhone, fullName, profilePicture, gender).
