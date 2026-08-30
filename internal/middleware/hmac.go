@@ -48,17 +48,17 @@ func HMACAuth(secret string) func(http.Handler) http.Handler {
 				return
 			}
 
-			tsStr := r.Header.Get("current_timestamp")
+			tsStr := r.Header.Get("X-Timestamp")
 			if tsStr == "" {
-				tsStr = r.Header.Get("X-Timestamp")
+				tsStr = r.Header.Get("current_timestamp")
 			}
-			nonce := r.Header.Get("current_nonce")
+			nonce := r.Header.Get("X-Nonce")
 			if nonce == "" {
-				nonce = r.Header.Get("X-Nonce")
+				nonce = r.Header.Get("current_nonce")
 			}
-			signature := r.Header.Get("current_signature")
+			signature := r.Header.Get("X-Signature")
 			if signature == "" {
-				signature = r.Header.Get("X-Signature")
+				signature = r.Header.Get("current_signature")
 			}
 
 			err := ValidateHMAC(r.Method, r.URL.Path, tsStr, nonce, signature, secret)
@@ -92,13 +92,19 @@ func ValidateHMAC(method, uri, tsStr, nonce, signature, secret string) error {
 		return fmt.Errorf("request has expired (timestamp too old or too far in the future)")
 	}
 
-	// Compute expected signature: HMAC-SHA256("{method}|{uri}|{timestamp}|{nonce}", secret)
+	// Format 1: Exact HMAC-SHA256("{method}|{uri}|{timestamp}|{nonce}", secret)
 	payload := method + "|" + uri + "|" + tsStr + "|" + nonce
 	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write([]byte(payload))
 	expected := hex.EncodeToString(mac.Sum(nil))
 
-	// Fallback legacy payload: HMAC-SHA256("{timestamp}|{nonce}", secret)
+	// Format 2: Generic HMAC-SHA256("{method}|/|{timestamp}|{nonce}", secret) - Laravel HmacAuth default
+	payloadGeneric := method + "|/|" + tsStr + "|" + nonce
+	macGeneric := hmac.New(sha256.New, []byte(secret))
+	macGeneric.Write([]byte(payloadGeneric))
+	expectedGeneric := hex.EncodeToString(macGeneric.Sum(nil))
+
+	// Format 3: Legacy HMAC-SHA256("{timestamp}|{nonce}", secret)
 	payloadLegacy := tsStr + "|" + nonce
 	macLegacy := hmac.New(sha256.New, []byte(secret))
 	macLegacy.Write([]byte(payloadLegacy))
@@ -112,7 +118,9 @@ func ValidateHMAC(method, uri, tsStr, nonce, signature, secret string) error {
 	fmt.Printf("HMAC Debug | Secret Used (first 4 chars): %s...\n", secret[:4])
 
 	// Constant-time comparison to prevent timing attacks
-	if !hmac.Equal([]byte(expected), []byte(signature)) && !hmac.Equal([]byte(expectedLegacy), []byte(signature)) {
+	if !hmac.Equal([]byte(expected), []byte(signature)) &&
+		!hmac.Equal([]byte(expectedGeneric), []byte(signature)) &&
+		!hmac.Equal([]byte(expectedLegacy), []byte(signature)) {
 		return fmt.Errorf("invalid HMAC signature")
 	}
 
