@@ -77,12 +77,13 @@ func New(db *pgxpool.Pool, cfg *config.Config) http.Handler {
 		hub,                  // hub
 		customerVendorClient, // customerClient
 		customerSSE,          // customerSSE
+		driverSSE,            // driverSSE
 		cfg.BaseURL,          // baseURL
 	)
 
 	// Driver Handlers
 	driverHistory := driver.NewHistoryHandler(s, driverSSE)
-	driverMessage := driver.NewMessageHandler(s, hub, driverVendorClient, driverSSE)
+	driverMessage := driver.NewMessageHandler(s, hub, driverVendorClient, driverSSE, customerSSE)
 
 	// Admin Handler
 	adminHandler := admin.NewAdminHandler(s)

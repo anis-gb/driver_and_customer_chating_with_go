@@ -203,10 +203,20 @@ func (sm *SSEManager) readStream(ctx context.Context, driverID string) error {
 				log.Printf("[SSEManager] Received business reply for driver %s: %s", driverID, event.Content)
 
 				// 🔥 driverID prefixed – original ID বের করুন
-				_, originalID := utils.ParseVendorUserID(driverID)
-				if originalID == "" {
-					log.Printf("[SSEManager] Invalid driver ID format: %s", driverID)
+				userType, originalID := utils.ParseVendorUserID(driverID)
+				if userType != "driver" || originalID == "" {
+					log.Printf("[SSEManager] Ignoring non-driver ID format or role: %s (role: %s)", driverID, userType)
 					continue
+				}
+
+				// Content-based dedup: blocks vendor echo-backs that arrive with a
+				// different event ID (e.g., the same admin reply echoed on the customer stream).
+				if event.Content != "" {
+					contentKey := "admin_reply:" + originalID + ":" + event.Content
+					if sm.isDuplicate(contentKey) {
+						log.Printf("[SSEManager] Duplicate admin reply (content) for driver %s, skipping", originalID)
+						continue
+					}
 				}
 
 				var voicePath, photoPath, filePath string
@@ -242,6 +252,7 @@ func (sm *SSEManager) readStream(ctx context.Context, driverID string) error {
 
 				outgoingMsg := store.OutgoingMessage{
 					Type:           "NEW_MESSAGE",
+					TargetRole:     "DRIVER",
 					ID:             msg.ID,
 					UserID:         msg.UserID,
 					AdminID:        msg.AdminID,

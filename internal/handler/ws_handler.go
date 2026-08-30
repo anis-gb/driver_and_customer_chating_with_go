@@ -3,6 +3,7 @@ package handler
 import (
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/gorilla/websocket"
 	"github.com/yourusername/go-starter/internal/middleware"
@@ -84,14 +85,24 @@ func (h *WebSocketHandler) ServeWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	channel := strings.ToUpper(r.URL.Query().Get("channel"))
+	if channel == "" {
+		if userType == "DRIVER" {
+			channel = "DRIVER"
+		} else if userType == "CUSTOMER" {
+			channel = "CUSTOMER"
+		}
+	}
+
 	// 3. Create and register client
 	client := &socket.Client{
-		UserID: userID,
-		Name:   userType, // Decoupled: Name fallback to Type
-		Role:   userType,
-		Conn:   conn,
-		Send:   make(chan []byte, 256),
-		Hub:    h.hub,
+		UserID:  userID,
+		Name:    userType, // Decoupled: Name fallback to Type
+		Role:    userType,
+		Channel: channel,
+		Conn:    conn,
+		Send:    make(chan []byte, 256),
+		Hub:     h.hub,
 	}
 
 	h.hub.Register(client)

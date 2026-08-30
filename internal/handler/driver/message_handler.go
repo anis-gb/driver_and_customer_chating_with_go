@@ -19,14 +19,16 @@ type MessageHandler struct {
 	hub          *socket.Hub
 	vendorClient *vendor.VendorClient
 	sseManager   *vendor.SSEManager
+	customerSSE  *vendor.CustomerSSEManager
 }
 
-func NewMessageHandler(s *store.Store, h *socket.Hub, vc *vendor.VendorClient, sse *vendor.SSEManager) *MessageHandler {
+func NewMessageHandler(s *store.Store, h *socket.Hub, vc *vendor.VendorClient, sse *vendor.SSEManager, csse *vendor.CustomerSSEManager) *MessageHandler {
 	return &MessageHandler{
 		store:        s,
 		hub:          h,
 		vendorClient: vc,
 		sseManager:   sse,
+		customerSSE:  csse,
 	}
 }
 
@@ -135,6 +137,7 @@ func (h *MessageHandler) SendDriverMessage(w http.ResponseWriter, r *http.Reques
 	// Broadcast via WebSocket
 	outgoingMsg := store.OutgoingMessage{
 		Type:           "NEW_MESSAGE",
+		TargetRole:     "DRIVER",
 		ID:             msg.ID,
 		UserID:         msg.UserID,
 		AdminID:        msg.AdminID,
@@ -203,6 +206,17 @@ func (h *MessageHandler) SendDriverMessage(w http.ResponseWriter, r *http.Reques
 			}
 		}(vendorUserID, content, voicePath, photoPath, filePath)
 	} else if authUserType == "ADMIN" {
+		// Pre-register content-based dedup key BEFORE the goroutine fires.
+		// This ensures the vendor echo-back (which may arrive on either SSE stream
+		// with a different vendor message ID) is always suppressed on both channels.
+		if content != "" {
+			contentKey := "admin_reply:" + targetUserID + ":" + content
+			h.sseManager.AddProcessedMessage(contentKey)
+			if h.customerSSE != nil {
+				h.customerSSE.AddProcessedMessage(contentKey)
+			}
+		}
+
 		go func(driverID, text string) {
 			vendorUserID := utils.GetVendorUserID("driver", driverID)
 			// Forward admin's reply content to the vendor as the business
@@ -211,8 +225,11 @@ func (h *MessageHandler) SendDriverMessage(w http.ResponseWriter, r *http.Reques
 				log.Printf("[driver.SendDriverMessage] Failed to forward agent reply to vendor for driver %s: %v", driverID, err)
 				return
 			}
-			// Mark the vendor message ID as processed so the SSE stream reader ignores it
+			// Also mark vendor message ID as processed in both SSE managers
 			h.sseManager.AddProcessedMessage(vendorMsgID)
+			if h.customerSSE != nil {
+				h.customerSSE.AddProcessedMessage(vendorMsgID)
+			}
 		}(targetUserID, content)
 	}
 
@@ -259,10 +276,11 @@ func (h *MessageHandler) MarkDriverMessagesSeen(w http.ResponseWriter, r *http.R
 
 	// Broadcast READ_STATUS
 	readMsg := store.OutgoingMessage{
-		Type:     "READ_STATUS",
-		UserID:   targetUserID,
-		SendedBy: authUserType,
-		Seen:     true,
+		Type:       "READ_STATUS",
+		TargetRole: "DRIVER",
+		UserID:     targetUserID,
+		SendedBy:   authUserType,
+		Seen:       true,
 	}
 	h.hub.BroadcastMessage(readMsg)
 
@@ -302,6 +320,7 @@ func (h *MessageHandler) EditDriverMessage(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	msg.TargetRole = "DRIVER"
 	h.hub.BroadcastMessage(*msg)
 
 	response.JSON(w, http.StatusOK, "message edited successfully", msg)

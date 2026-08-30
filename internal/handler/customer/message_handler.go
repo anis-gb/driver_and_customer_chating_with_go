@@ -149,6 +149,7 @@ type MessageHandler struct {
 	hub            *socket.Hub
 	customerClient *vendor.CustomerClient
 	customerSSE    *vendor.CustomerSSEManager
+	driverSSE      *vendor.SSEManager
 	baseURL        string
 }
 
@@ -158,6 +159,7 @@ func NewMessageHandler(
 	h *socket.Hub,
 	customerClient *vendor.CustomerClient,
 	customerSSE *vendor.CustomerSSEManager,
+	driverSSE *vendor.SSEManager,
 	baseURL string,
 ) *MessageHandler {
 	return &MessageHandler{
@@ -165,6 +167,7 @@ func NewMessageHandler(
 		hub:            h,
 		customerClient: customerClient,
 		customerSSE:    customerSSE,
+		driverSSE:      driverSSE,
 		baseURL:        baseURL,
 	}
 }
@@ -352,6 +355,7 @@ func (h *MessageHandler) SendCustomerMessage(w http.ResponseWriter, r *http.Requ
 	// Broadcast via WebSocket
 	outgoingMsg := store.OutgoingMessage{
 		Type:           "NEW_MESSAGE",
+		TargetRole:     "CUSTOMER",
 		ID:             msg.ID,
 		UserID:         msg.UserID,
 		AdminID:        msg.AdminID,
@@ -372,6 +376,17 @@ func (h *MessageHandler) SendCustomerMessage(w http.ResponseWriter, r *http.Requ
 
 	// 🔥 Admin reply forwarding (এখানেও vendorUserID ব্যবহার)
 	if authUserType == "ADMIN" {
+		// Pre-register content-based dedup key BEFORE the goroutine fires.
+		// The vendor echoes admin replies back on both SSE streams with different IDs;
+		// blocking by content ensures neither stream re-saves it to the wrong table.
+		if content != "" {
+			contentKey := "admin_reply:" + targetUserID + ":" + content
+			h.customerSSE.AddProcessedMessage(contentKey)
+			if h.driverSSE != nil {
+				h.driverSSE.AddProcessedMessage(contentKey)
+			}
+		}
+
 		go func(customerID, text string) {
 			vendorUserID := utils.GetVendorUserID("customer", customerID)
 			vendorMsgID, err := h.customerClient.ForwardAgentReply(context.Background(), vendorUserID, text)
@@ -380,6 +395,9 @@ func (h *MessageHandler) SendCustomerMessage(w http.ResponseWriter, r *http.Requ
 				return
 			}
 			h.customerSSE.AddProcessedMessage(vendorMsgID)
+			if h.driverSSE != nil {
+				h.driverSSE.AddProcessedMessage(vendorMsgID)
+			}
 		}(targetUserID, content)
 	}
 
@@ -424,10 +442,11 @@ func (h *MessageHandler) MarkCustomerMessagesSeen(w http.ResponseWriter, r *http
 	}
 
 	readMsg := store.OutgoingMessage{
-		Type:     "READ_STATUS",
-		UserID:   targetUserID,
-		SendedBy: authUserType,
-		Seen:     true,
+		Type:       "READ_STATUS",
+		TargetRole: "CUSTOMER",
+		UserID:     targetUserID,
+		SendedBy:   authUserType,
+		Seen:       true,
 	}
 	h.hub.BroadcastMessage(readMsg)
 
@@ -467,6 +486,7 @@ func (h *MessageHandler) EditCustomerMessage(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	msg.TargetRole = "CUSTOMER"
 	h.hub.BroadcastMessage(*msg)
 
 	response.JSON(w, http.StatusOK, "message edited successfully", msg)
@@ -539,8 +559,9 @@ func (h *MessageHandler) DeleteCustomerMessage(w http.ResponseWriter, r *http.Re
 	}
 
 	deleteMsg := store.OutgoingMessage{
-		Type: "DELETE_MESSAGE",
-		ID:   messageID,
+		Type:       "DELETE_MESSAGE",
+		TargetRole: "CUSTOMER",
+		ID:         messageID,
 	}
 	h.hub.BroadcastMessage(deleteMsg)
 

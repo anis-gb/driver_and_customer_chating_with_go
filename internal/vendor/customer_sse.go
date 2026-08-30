@@ -281,12 +281,22 @@ func (sm *CustomerSSEManager) processCustomerMessage(ctx context.Context, custom
 	log.Printf("[CustomerSSEManager] Processing admin message for customer %s: %s", customerID, event.Content)
 
 	// 🔥 customerID is prefixed (e.g., "customer_1") – parse to get original ID
-	_, originalID := utils.ParseVendorUserID(customerID)
-	if originalID == "" {
-		log.Printf("[CustomerSSEManager] Invalid customer ID format: %s", customerID)
+	userType, originalID := utils.ParseVendorUserID(customerID)
+	if userType != "customer" || originalID == "" {
+		log.Printf("[CustomerSSEManager] Ignoring non-customer ID format or role: %s (role: %s)", customerID, userType)
 		return
 	}
 	log.Printf("[CustomerSSEManager] Parsed original customer ID: %s", originalID)
+
+	// Content-based dedup: blocks vendor echo-backs that arrive with a
+	// different event ID (e.g., the same admin reply echoed on the driver stream).
+	if event.Content != "" {
+		contentKey := "admin_reply:" + originalID + ":" + event.Content
+		if sm.isDuplicate(contentKey) {
+			log.Printf("[CustomerSSEManager] Duplicate admin reply (content) for customer %s, skipping", originalID)
+			return
+		}
+	}
 
 	// Extract media URLs if present
 	var voicePath, photoPath, filePath string
@@ -338,6 +348,7 @@ func (sm *CustomerSSEManager) processCustomerMessage(ctx context.Context, custom
 	// Broadcast to WebSocket Hub
 	outgoingMsg := store.OutgoingMessage{
 		Type:           "NEW_MESSAGE",
+		TargetRole:     "CUSTOMER",
 		ID:             msg.ID,
 		UserID:         msg.UserID, // original ID from DB
 		AdminID:        msg.AdminID,

@@ -11,12 +11,13 @@ import (
 
 // Client represents a connected user.
 type Client struct {
-	UserID string
-	Name   string
-	Role   string // "ADMIN", "CUSTOMER", "DRIVER"
-	Conn   *websocket.Conn
-	Send   chan []byte
-	Hub    *Hub
+	UserID  string
+	Name    string
+	Role    string // "ADMIN", "CUSTOMER", "DRIVER"
+	Channel string // "DRIVER", "CUSTOMER"
+	Conn    *websocket.Conn
+	Send    chan []byte
+	Hub     *Hub
 }
 
 // Hub maintains active client connections and coordinates message routing.
@@ -127,10 +128,13 @@ func (h *Hub) BroadcastMessage(msg store.OutgoingMessage) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
-	// 1. Broadcast to all active Admins (they see full details)
+	// 1. Broadcast to active Admins (filtered by channel if specified)
 	adminCount := 0
 	for admin := range h.admins {
 		a := admin
+		if msg.TargetRole != "" && a.Channel != "" && a.Channel != msg.TargetRole {
+			continue // Skip admin tab that belongs to another channel
+		}
 		select {
 		case a.Send <- payload:
 			adminCount++
@@ -145,6 +149,9 @@ func (h *Hub) BroadcastMessage(msg store.OutgoingMessage) {
 		for client := range userConns {
 			if client.Role == "ADMIN" {
 				continue // Already sent to admins above
+			}
+			if msg.TargetRole != "" && client.Role != msg.TargetRole {
+				continue // Do not broadcast to driver if message target_role is CUSTOMER (and vice-versa)
 			}
 			c := client
 			select {

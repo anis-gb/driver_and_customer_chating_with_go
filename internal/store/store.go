@@ -36,6 +36,7 @@ type Message struct {
 // OutgoingMessage represents the structured message sent to clients and returned in history.
 type OutgoingMessage struct {
 	Type          string    `json:"type,omitempty"` // NEW_MESSAGE, EDIT_MESSAGE, DELETE_MESSAGE, READ_STATUS
+	TargetRole    string    `json:"target_role,omitempty"` // "DRIVER", "CUSTOMER"
 	ID            string    `json:"id,omitempty"`
 	UserID        string    `json:"user_id"`
 	AdminID       *string   `json:"admin_id,omitempty"` // empty if anonymized or not an admin
