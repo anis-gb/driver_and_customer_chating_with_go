@@ -240,6 +240,39 @@ func (vc *VendorClient) ToggleVendorBot(ctx context.Context, driverID string, en
 	return nil
 }
 
+// GetVendorBotStatus gets the current toggle status of the AI agent for a conversation.
+func (vc *VendorClient) GetVendorBotStatus(ctx context.Context, driverID string) (bool, error) {
+	url := fmt.Sprintf("%s/agent/bot?endUserId=%s", vc.apiURL, driverID)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return false, fmt.Errorf("failed to create bot status request: %w", err)
+	}
+
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", vc.secretKey))
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := vc.httpClient.Do(req)
+	if err != nil {
+		return false, fmt.Errorf("failed to perform bot status query: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return false, fmt.Errorf("bot status query returned status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var res struct {
+		BotEnabled bool `json:"botEnabled"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+		return false, fmt.Errorf("failed to decode bot status response: %w", err)
+	}
+
+	return res.BotEnabled, nil
+}
+
+
 // ForwardAgentReply sends the admin's reply to the vendor's agent reply endpoint and returns the vendor's message ID.
 func (vc *VendorClient) ForwardAgentReply(ctx context.Context, driverID, content string) (string, error) {
 	url := fmt.Sprintf("%s/agent/reply", vc.apiURL)

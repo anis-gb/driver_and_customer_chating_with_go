@@ -312,6 +312,38 @@ func (cc *CustomerClient) ToggleVendorBot(ctx context.Context, customerID string
 	return nil
 }
 
+// GetVendorBotStatus gets the current toggle status of the AI agent for a customer conversation.
+func (cc *CustomerClient) GetVendorBotStatus(ctx context.Context, customerID string) (bool, error) {
+	url := fmt.Sprintf("%s/agent/bot?endUserId=%s&userType=customer", cc.apiURL, customerID)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return false, fmt.Errorf("failed to create bot status request: %w", err)
+	}
+
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", cc.secretKey))
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := cc.httpClient.Do(req)
+	if err != nil {
+		return false, fmt.Errorf("failed to perform bot status query: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return false, fmt.Errorf("bot status query returned status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var res struct {
+		BotEnabled bool `json:"botEnabled"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+		return false, fmt.Errorf("failed to decode bot status response: %w", err)
+	}
+
+	return res.BotEnabled, nil
+}
+
 // ============================================================
 // CACHE MANAGEMENT
 // ============================================================
