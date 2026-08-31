@@ -86,7 +86,7 @@ func New(db *pgxpool.Pool, cfg *config.Config) http.Handler {
 	driverMessage := driver.NewMessageHandler(s, hub, driverVendorClient, driverSSE, customerSSE)
 
 	// Admin Handler
-	adminHandler := admin.NewAdminHandler(s)
+	adminHandler := admin.NewAdminHandler(s, driverVendorClient, customerVendorClient)
 
 	// ============================================================
 	// PUBLIC ENDPOINTS
@@ -132,6 +132,8 @@ func New(db *pgxpool.Pool, cfg *config.Config) http.Handler {
 		r.Get("/api/admin/conversations", adminHandler.GetConversations)
 		r.Get("/api/admin/conversations/customers", adminHandler.GetCustomerConversations)
 		r.Get("/api/admin/conversations/drivers", adminHandler.GetDriverConversations)
+		r.Post("/api/admin/bot/toggle", adminHandler.ToggleBot)
+		r.Get("/api/admin/bot/status", adminHandler.GetBotStatus)
 	})
 
 	return r
