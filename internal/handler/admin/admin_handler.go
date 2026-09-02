@@ -129,7 +129,7 @@ func (h *AdminHandler) ToggleBot(w http.ResponseWriter, r *http.Request) {
 		req.TargetUserID = r.FormValue("target_user_id")
 		req.UserRole = r.FormValue("user_role")
 		req.UserType = r.FormValue("user_type")
-		
+
 		enabledStr := r.FormValue("enabled")
 		if enabledStr == "true" {
 			req.Enabled = true
