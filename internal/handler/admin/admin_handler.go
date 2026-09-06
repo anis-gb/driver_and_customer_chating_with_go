@@ -111,6 +111,11 @@ type ToggleBotRequest struct {
 	UserRole     string `json:"user_role"`
 	Enabled      bool   `json:"enabled"`
 	UserType     string `json:"user_type"`
+	AdminID      string `json:"admin_id"`
+	AdminName    string `json:"admin_name"`
+	UserID       string `json:"user_id"`
+	FullName     string `json:"full_name"`
+	Reason       string `json:"reason"`
 }
 
 func (h *AdminHandler) ToggleBot(w http.ResponseWriter, r *http.Request) {
@@ -129,7 +134,12 @@ func (h *AdminHandler) ToggleBot(w http.ResponseWriter, r *http.Request) {
 		req.TargetUserID = r.FormValue("target_user_id")
 		req.UserRole = r.FormValue("user_role")
 		req.UserType = r.FormValue("user_type")
-		
+		req.AdminID = r.FormValue("admin_id")
+		req.AdminName = r.FormValue("admin_name")
+		req.UserID = r.FormValue("user_id")
+		req.FullName = r.FormValue("full_name")
+		req.Reason = r.FormValue("reason")
+
 		enabledStr := r.FormValue("enabled")
 		if enabledStr == "true" {
 			req.Enabled = true
@@ -169,6 +179,42 @@ func (h *AdminHandler) ToggleBot(w http.ResponseWriter, r *http.Request) {
 		response.JSON(w, http.StatusInternalServerError, "failed to toggle AI bot on vendor platform", nil)
 		return
 	}
+
+	// Record audit history
+	changedByUserID := req.AdminID
+	if changedByUserID == "" {
+		changedByUserID = req.UserID
+	}
+	if changedByUserID == "" {
+		changedByUserID = "admin"
+	}
+
+	changedByUserName := req.AdminName
+	if changedByUserName == "" {
+		changedByUserName = req.FullName
+	}
+	if changedByUserName == "" {
+		changedByUserName = "Support Admin"
+	}
+
+	reason := req.Reason
+	if reason == "" {
+		reason = "MANUAL_TOGGLE"
+	}
+
+	log.Printf("[ToggleBot] saving history: target=%s, role=%s, enabled=%v, changed_by_id=%s, changed_by_name=%s, reason=%s",
+		req.TargetUserID, req.UserRole, req.Enabled, changedByUserID, changedByUserName, reason)
+
+	_ = h.store.SaveBotStatusHistory(
+		r.Context(),
+		req.TargetUserID,
+		req.UserRole,
+		req.Enabled,
+		changedByUserID,
+		changedByUserName,
+		"ADMIN",
+		reason,
+	)
 
 	response.JSON(w, http.StatusOK, "AI bot status updated successfully", map[string]interface{}{
 		"target_user_id": req.TargetUserID,
@@ -218,3 +264,33 @@ func (h *AdminHandler) GetBotStatus(w http.ResponseWriter, r *http.Request) {
 		"enabled":        botEnabled,
 	})
 }
+
+func (h *AdminHandler) GetBotToggleHistory(w http.ResponseWriter, r *http.Request) {
+	targetUserID := r.URL.Query().Get("target_user_id")
+	userRole := r.URL.Query().Get("user_role")
+	userType := r.URL.Query().Get("user_type")
+
+	if userType != "ADMIN" {
+		response.JSON(w, http.StatusForbidden, "access denied: admin role required", nil)
+		return
+	}
+
+	if targetUserID == "" || userRole == "" {
+		response.JSON(w, http.StatusBadRequest, "target_user_id and user_role are required", nil)
+		return
+	}
+
+	history, err := h.store.GetBotStatusHistory(r.Context(), targetUserID, userRole)
+	if err != nil {
+		log.Printf("Failed to get bot toggle history for %s (%s): %v", targetUserID, userRole, err)
+		response.JSON(w, http.StatusInternalServerError, "failed to fetch bot toggle history", nil)
+		return
+	}
+
+	if history == nil {
+		history = []store.BotStatusHistory{}
+	}
+
+	response.JSON(w, http.StatusOK, "fetched AI bot history successfully", history)
+}
+
