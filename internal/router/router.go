@@ -111,6 +111,7 @@ func New(db *pgxpool.Pool, cfg *config.Config) http.Handler {
 		r.Post("/api/customer/messages", customerHandler.SendCustomerMessage)           // <-- customerHandler
 		r.Post("/api/customer/messages/seen", customerHandler.MarkCustomerMessagesSeen) // <-- customerHandler
 		r.Patch("/api/customer/messages/{id}", customerHandler.EditCustomerMessage)     // <-- customerHandler
+		r.Get("/api/customer/messages/{id}/edits", customerHandler.GetMessageEditHistory)
 	})
 
 	// ============================================================
@@ -122,6 +123,7 @@ func New(db *pgxpool.Pool, cfg *config.Config) http.Handler {
 		r.Post("/api/driver/messages", driverMessage.SendDriverMessage)
 		r.Post("/api/driver/messages/seen", driverMessage.MarkDriverMessagesSeen)
 		r.Patch("/api/driver/messages/{id}", driverMessage.EditDriverMessage)
+		r.Get("/api/driver/messages/{id}/edits", driverMessage.GetMessageEditHistory)
 	})
 
 	// ============================================================
@@ -134,6 +136,7 @@ func New(db *pgxpool.Pool, cfg *config.Config) http.Handler {
 		r.Get("/api/admin/conversations/drivers", adminHandler.GetDriverConversations)
 		r.Post("/api/admin/bot/toggle", adminHandler.ToggleBot)
 		r.Get("/api/admin/bot/status", adminHandler.GetBotStatus)
+		r.Get("/api/admin/bot/history", adminHandler.GetBotToggleHistory)
 	})
 
 	return r

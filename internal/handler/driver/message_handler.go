@@ -287,8 +287,11 @@ func (h *MessageHandler) MarkDriverMessagesSeen(w http.ResponseWriter, r *http.R
 	response.JSON(w, http.StatusOK, "messages marked as seen", nil)
 }
 
+// EditDriverMessage edits an existing message (admin only)
+// and records an audit history entry with old_value and new_value.
 func (h *MessageHandler) EditDriverMessage(w http.ResponseWriter, r *http.Request) {
 	messageID := chi.URLParam(r, "id")
+	log.Printf("[EditDriverMessage] message_id: %s", messageID)
 	if messageID == "" {
 		response.JSON(w, http.StatusBadRequest, "message id is required", nil)
 		return
@@ -301,27 +304,89 @@ func (h *MessageHandler) EditDriverMessage(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
-	var authUserType string
-	authUserType = r.FormValue("user_type")
+	authUserType := r.FormValue("user_type")
+	authUserID := r.FormValue("user_id")
+	authUserFullName := r.FormValue("full_name")
+	log.Printf("[EditDriverMessage] user_type: %s | user_id: %s | full_name: %s", authUserType, authUserID, authUserFullName)
+
 	if authUserType != "ADMIN" {
 		response.JSON(w, http.StatusForbidden, "only admins can edit messages", nil)
 		return
 	}
 
 	content := utils.CleanText(r.FormValue("content"))
+	log.Printf("[EditDriverMessage] new content: %s", content)
+
 	if content == "" {
 		response.JSON(w, http.StatusBadRequest, "content cannot be empty", nil)
 		return
 	}
 
+	existingMsg, err := h.store.GetDriverMessageByID(r.Context(), messageID)
+	if err != nil {
+		log.Printf("[EditDriverMessage] failed to fetch original message: %v", err)
+		response.JSON(w, http.StatusInternalServerError, "failed to fetch original message", nil)
+		return
+	}
+	log.Printf("[EditDriverMessage] old content: %s", existingMsg.Content)
+
+	// Update the message
 	msg, err := h.store.EditDriverMessage(r.Context(), messageID, content)
 	if err != nil {
+		log.Printf("[EditDriverMessage] failed to edit message: %v", err)
 		response.JSON(w, http.StatusInternalServerError, "failed to edit message or message not found", nil)
 		return
 	}
+
+	// Record edit history
+	editedByUserID := authUserID
+	if editedByUserID == "" {
+		editedByUserID = "admin"
+	}
+	editedByName := authUserFullName
+	if editedByName == "" {
+		editedByName = "Support Admin"
+	}
+
+	log.Printf("[EditDriverMessage] saving history: message_id=%s, type=DRIVER, editor_id=%s, editor_name=%s, editor_type=ADMIN, old=%q, new=%q",
+		messageID, editedByUserID, editedByName, existingMsg.Content, content)
+
+	_ = h.store.SaveMessageHistory(
+		r.Context(),
+		messageID,
+		"DRIVER",
+		editedByUserID,
+		editedByName,
+		"ADMIN",
+		existingMsg.Content,
+		content,
+	)
 
 	msg.TargetRole = "DRIVER"
 	h.hub.BroadcastMessage(*msg)
 
 	response.JSON(w, http.StatusOK, "message edited successfully", msg)
 }
+
+// GetMessageEditHistory returns all edit audit records for a driver message.
+func (h *MessageHandler) GetMessageEditHistory(w http.ResponseWriter, r *http.Request) {
+	messageID := chi.URLParam(r, "id")
+	if messageID == "" {
+		response.JSON(w, http.StatusBadRequest, "message id is required", nil)
+		return
+	}
+
+	history, err := h.store.GetMessageEditHistory(r.Context(), messageID)
+	if err != nil {
+		log.Printf("Failed to fetch message edit history: %v", err)
+		response.JSON(w, http.StatusInternalServerError, "failed to fetch message edit history", nil)
+		return
+	}
+
+	if history == nil {
+		history = []store.MessageHistory{}
+	}
+
+	response.JSON(w, http.StatusOK, "message edit history retrieved", history)
+}
+

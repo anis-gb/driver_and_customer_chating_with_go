@@ -610,3 +610,26 @@ func (h *MessageHandler) DeleteCustomerMessage(w http.ResponseWriter, r *http.Re
 
 	response.JSON(w, http.StatusOK, "message deleted successfully", nil)
 }
+
+// GetMessageEditHistory returns all edit audit records for a customer message.
+func (h *MessageHandler) GetMessageEditHistory(w http.ResponseWriter, r *http.Request) {
+	messageID := chi.URLParam(r, "id")
+	if messageID == "" {
+		response.JSON(w, http.StatusBadRequest, "message id is required", nil)
+		return
+	}
+
+	history, err := h.store.GetMessageEditHistory(r.Context(), messageID)
+	if err != nil {
+		log.Printf("Failed to fetch message edit history: %v", err)
+		response.JSON(w, http.StatusInternalServerError, "failed to fetch message edit history", nil)
+		return
+	}
+
+	if history == nil {
+		history = []store.MessageHistory{}
+	}
+
+	response.JSON(w, http.StatusOK, "message edit history retrieved", history)
+}
+
